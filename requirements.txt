@@ -1,0 +1,10 @@
+numpy
+scipy
+pandas
+sklearn
+matplotlib
+
+torch
+fairseq
+
+ipykernel
