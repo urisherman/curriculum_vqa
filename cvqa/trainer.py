@@ -54,7 +54,7 @@ class Trainer:
         return train_loss, train_acc, dev_acc
 
     def model_fwd(self, model, sample):
-        model_output = model(src_tokens=sample['X'], src_lengths=None, prev_output_tokens=sample['target'])
+        model_output = model(src_tokens=sample['X'], src_img=sample['img'], prev_output_tokens=sample['target'])
         logits = model_output[0]  # [B, No, V]
         logits = logits.view(-1, logits.size(-1))  # [B*No, V]
         targets = sample['target'].view(-1, 1)  # [B*No]

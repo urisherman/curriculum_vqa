@@ -19,7 +19,7 @@ class SanityTest(unittest.TestCase):
     def test_0(self):
         np.random.seed(seed)
         torch.manual_seed(seed)
-        train_dataset = datasets.NLVRDataset.load(nlvr_root, 'dev')
+        train_dataset = datasets.NLVRDataset.load(nlvr_root, 'train', limit=50)
 
         params = {
             'd': 12  # embedding dimension
@@ -30,4 +30,4 @@ class SanityTest(unittest.TestCase):
 
         optimizer = torch.optim.Adam(vqa_model.parameters(), lr=1e-4)
 
-        my_trainer.train(vqa_model, train_dataset, optimizer)
+        my_trainer.train(vqa_model, train_dataset, optimizer, num_epochs=2)
