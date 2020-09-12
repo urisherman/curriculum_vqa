@@ -10,6 +10,11 @@ import argparse
 
 from cvqa import fairseq_misc
 
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
 
 def build_model(vocab, params):
     args = fariseq_transformer_args(params)
@@ -20,7 +25,7 @@ def build_model(vocab, params):
 
     # return TransformerModel(args, encoder, decoder)
     img_percept = Resnet18PerceptionModel(params['d'])
-    return VQAModelV0(encoder, img_percept, decoder)
+    return VQAModelV0(encoder, img_percept, decoder).to(device)
 
 
 class VQAModelV0(nn.Module):

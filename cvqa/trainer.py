@@ -22,6 +22,7 @@ class Trainer:
         training_generator = torch_utils.data.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
         )
+
         ce_crit = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
 
         train_loss = []
