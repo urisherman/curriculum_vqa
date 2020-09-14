@@ -1,8 +1,11 @@
 import statistics
+import os
 
 import torch
 import torch.utils as torch_utils
 import torch.nn as nn
+
+from torch.utils.tensorboard import SummaryWriter
 
 import fairseq.utils as fairseq_utils
 
@@ -11,14 +14,22 @@ from tqdm import tqdm
 
 class Trainer:
 
-    def __init__(self, ignore_index):
+    def __init__(self, ignore_index, log_dir=None):
         self.ignore_index = ignore_index
 
         self.is_cuda = False
         if torch.cuda.is_available():
             self.is_cuda = True
 
+        if log_dir is not None:
+            from datetime import datetime
+            current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+            log_dir = os.path.join(log_dir, f'run-{current_time}')
+        self.summary_writer = SummaryWriter(log_dir)
+
     def train(self, model, train_dataset, dev_dataset, optimizer, num_epochs=10, batch_size=32):
+        self.summary_writer = SummaryWriter(self.summary_writer.log_dir)
+
         training_generator = torch_utils.data.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
         )
@@ -33,32 +44,29 @@ class Trainer:
         train_acc = []
         dev_acc = []
 
-        def eval_step():
+        def eval_step(epoch):
             cur_train_acc = self.evaluate(model, training_generator, iter_lim=100)
             train_acc.append(cur_train_acc)
             cur_dev_acc = self.evaluate(model, dev_generator)
             dev_acc.append(cur_dev_acc)
+            self.summary_writer.add_scalar('Accuracy/train', cur_train_acc, epoch)
+            self.summary_writer.add_scalar('Accuracy/dev', cur_dev_acc, epoch)
 
         for epoch in range(num_epochs):
-            eval_step()
+            eval_step(epoch)
             with tqdm(training_generator) as prg_train:
                 for i, sample in enumerate(prg_train):
-                    # sample = {
-                    #             'id': Tensor[B],
-                    #             'nsentences': B,
-                    #             'ntokens': ?,
-                    #             'net_input': {src_tokens, src_lengths, prev_output_tokens},
-                    #             'target': Tensor[B, No]
-                    #         }
 
                     info = self.train_step(model, sample, optimizer, ce_crit)
 
                     train_loss.append(info['loss'])
+                    self.summary_writer.add_scalar('Loss/train', info['loss'], epoch * len(training_generator) + i)
+
                     running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
-                    status_str = f'[{epoch}] loss: {running_mean_loss:.3f}'
+                    status_str = f'[epoch={epoch}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
                     prg_train.set_description(status_str)
 
-        eval_step()
+        eval_step(num_epochs)
 
         return train_loss, train_acc, dev_acc
 

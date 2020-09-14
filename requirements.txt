@@ -1,5 +1,5 @@
-numpy
-scipy
+numpy == 1.18.5
+scipy == 1.4.1
 pandas
 sklearn
 matplotlib
@@ -7,6 +7,7 @@ matplotlib
 torch
 fairseq
 torchvision
+tensorflow
 
 gdown
 

@@ -13,6 +13,8 @@ data_root = os.path.join(project_root, 'data-bin')
 nlvr_root = os.path.join(data_root, 'nlvr')
 seed = 1
 
+tensorboard_root = os.path.join(project_root, 'tensorboard-logs/tests')
+
 
 class SanityTest(unittest.TestCase):
 
@@ -28,22 +30,8 @@ class SanityTest(unittest.TestCase):
         }
 
         vqa_model = model.build_model(vocab, params)
-        my_trainer = trainer.Trainer(vocab.pad_index)
+        my_trainer = trainer.Trainer(vocab.pad_index, log_dir=tensorboard_root)
 
         optimizer = torch.optim.Adam(vqa_model.parameters(), lr=1e-4)
 
-        my_trainer.train(vqa_model, train_dataset, dev_dataset, optimizer, num_epochs=2)
-
-    def test_temp(self):
-        x = []
-        y = [10]
-
-        def foo():
-            x.append(1)
-            x.append(y[0])
-
-        for i in range(5):
-            y[0] = 10*(i+1)
-            foo()
-
-        print(x)
+        my_trainer.train(vqa_model, train_dataset, dev_dataset, optimizer, num_epochs=3, batch_size=6)
