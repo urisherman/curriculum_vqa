@@ -45,7 +45,7 @@ class VQAModelV0(nn.Module):
         comodal_seq = torch.cat([encoder_out.encoder_out, torch.transpose(perception_out, 0, 1)], dim=0)
 
         # concatenate pad mask
-        img_pad_mask = torch.zeros(B, Z) == 1
+        img_pad_mask = torch.zeros(B, Z).to(device) == 1
         comodal_pad_mask = torch.cat([encoder_out.encoder_padding_mask, img_pad_mask], dim=1)
 
         decoder_in = EncoderOut(
