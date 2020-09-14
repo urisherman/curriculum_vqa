@@ -18,9 +18,13 @@ class Trainer:
         if torch.cuda.is_available():
             self.is_cuda = True
 
-    def train(self, model, train_dataset, optimizer, num_epochs=10, batch_size=32):
+    def train(self, model, train_dataset, dev_dataset, optimizer, num_epochs=10, batch_size=32):
         training_generator = torch_utils.data.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
+        )
+
+        dev_generator = torch_utils.data.DataLoader(
+            dev_dataset, batch_size=batch_size, shuffle=True
         )
 
         ce_crit = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
@@ -29,10 +33,14 @@ class Trainer:
         train_acc = []
         dev_acc = []
 
-        for epoch in range(num_epochs):
+        def eval_step():
             cur_train_acc = self.evaluate(model, training_generator, iter_lim=100)
             train_acc.append(cur_train_acc)
+            cur_dev_acc = self.evaluate(model, dev_generator)
+            dev_acc.append(cur_dev_acc)
 
+        for epoch in range(num_epochs):
+            eval_step()
             with tqdm(training_generator) as prg_train:
                 for i, sample in enumerate(prg_train):
                     # sample = {
@@ -50,8 +58,8 @@ class Trainer:
                     status_str = f'[{epoch}] loss: {running_mean_loss:.3f}'
                     prg_train.set_description(status_str)
 
-        cur_train_acc = self.evaluate(model, training_generator, iter_lim=100)
-        train_acc.append(cur_train_acc)
+        eval_step()
+
         return train_loss, train_acc, dev_acc
 
     def model_fwd(self, model, sample):

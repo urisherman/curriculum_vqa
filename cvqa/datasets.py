@@ -39,15 +39,17 @@ def download_if_needed(dataset_name, root, a_file):
 class NLVR(torch_utils.data.Dataset):
 
     @staticmethod
-    def load(ds_file, limit=None):
-        vocab = Dictionary()
+    def load(ds_file, vocab=None, limit=None):
+        is_build_vocab = vocab is None
+        if is_build_vocab:
+            vocab = Dictionary()
 
         samples = []
         with open(ds_file) as data:
             for i, line in enumerate(data):
                 sample = json.loads(line)
                 samples.append(sample)
-                sentence_ids = encode_line(sample['sentence'], vocab)
+                sentence_ids = encode_line(sample['sentence'], vocab, add_if_not_exist=is_build_vocab)
                 sample['sentence_ids'] = sentence_ids
 
                 label_ids = encode_line(sample['label'], vocab)
@@ -58,11 +60,11 @@ class NLVR(torch_utils.data.Dataset):
         vocab.finalize()
         return samples, vocab
 
-    def __init__(self, root, split='train', img_transform=None, limit=None, download=False):
+    def __init__(self, root, split='train', vocab=None, img_transform=None, limit=None, download=False):
         ds_file = os.path.join(root, split, f'{split}.json')
         if download:
             download_if_needed('NLVR', root, ds_file)
-        samples, vocab = NLVR.load(ds_file, limit=limit)
+        samples, vocab = NLVR.load(ds_file, vocab=vocab, limit=limit)
         self.samples = samples
         self.vocab = vocab
         self.images_dir = os.path.join(root, split, 'images')
