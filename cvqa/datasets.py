@@ -20,6 +20,9 @@ import torchvision as tv
 DATASETS = {
     'NLVR': {
         'url': 'https://drive.google.com/uc?id=1cVUPwPYIwvHY_TQxRQ9sSvpDZdxzTRXz'
+    },
+    'basic_curriculum': {
+        'url': 'https://drive.google.com/uc?id=14TuslNdx_cmQL_mH-_pRTWsRaO7Gwa4x'
     }
 }
 
@@ -165,10 +168,12 @@ class BaseDataset(torch_utils.data.Dataset):
 
 class BasicCurriculum(BaseDataset):
 
-    def __init__(self, root, split='train', vocab=None, prompt_mode='concept', target_mode='class', limit=None):
+    def __init__(self, root, split='train', vocab=None, prompt_mode='concept', target_mode='class', limit=None, download=True):
         root_dir = os.path.join(root, split)
-
         ds_file = os.path.join(root, split, f'dataset.json')
+
+        download_if_needed('basic_curriculum', root, ds_file)
+
         with open(ds_file) as data:
             samples = json.load(data)
 

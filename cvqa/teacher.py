@@ -110,9 +110,10 @@ def draw_triangle(sample, ax):
     ax.add_patch(t1)
 
 
-def generate(split, num_images):
-    project_root = pathlib.Path(__file__).parent.parent.absolute()
-    dataset_root = os.path.join(project_root, f'data-bin/basic_curriculum/{split}')
+def generate(split, num_images, root=None):
+    if root is None:
+        root = pathlib.Path(__file__).parent.parent.absolute()
+    dataset_root = os.path.join(root, f'data-bin/basic_curriculum/{split}')
     shutil.rmtree(dataset_root, ignore_errors=True)
 
     viz_list = []
