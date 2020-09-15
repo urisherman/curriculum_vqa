@@ -25,7 +25,7 @@ def build_model(vocab, params):
 
     # return TransformerModel(args, encoder, decoder)
     img_percept = Resnet18PerceptionModel(params['d'])
-    return VQAModelV0(encoder, img_percept, decoder).to(device)
+    return VQAModelV0(encoder, img_percept, decoder)
 
 
 class VQAModelV0(nn.Module):

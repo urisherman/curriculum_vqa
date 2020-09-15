@@ -15,6 +15,11 @@ import fairseq.utils as fairseq_utils
 
 from tqdm import tqdm
 
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
 
 class Trainer(object):
 
@@ -36,6 +41,9 @@ class Trainer(object):
             log_dir = os.path.join(self.log_dir, f'run-{current_time}')
 
         self.summary_writer = SummaryWriter(log_dir)
+
+        if self.is_cuda:
+            model.to(device)
 
         training_generator = torch_utils.data.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
