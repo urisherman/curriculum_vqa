@@ -36,84 +36,186 @@ def download_if_needed(dataset_name, root, a_file):
         print(f'Dataset was downloaded successfully and extracted to {root}')
 
 
-class NLVR(torch_utils.data.Dataset):
+class LabelIndexer:
+    def __init__(self):
+        self.labels = set()
 
-    @staticmethod
-    def load(ds_file, vocab=None, limit=None):
+    def add(self, l):
+        self.labels.add(l)
+
+    def get_index(self):
+        labels = list(self.labels)
+        labels.sort()
+        label_to_idx = {l: i for i, l in enumerate(labels)}
+        return label_to_idx
+
+
+class BaseDataset(torch_utils.data.Dataset):
+
+    def __init__(self, root_dir, samples, img_transform, vocab=None, prompt_mode='concept', target_mode='class', limit=None):
+        """
+        samples should be
+        :param root_dir:
+        :param samples: a list of {
+              'prompt':
+              'target':
+              'image_path':
+              'concept': <-- required only if prompt_mode == 'concept'
+        }
+        :param img_transform:
+        :param vocab:
+        :param prompt_mode:
+        :param target_mode:
+        :param limit:
+        """
+        self.root_dir = root_dir
+        self.prompt_mode = prompt_mode
+        self.target_mode = target_mode
+        self.img_transform = img_transform
+
         is_build_vocab = vocab is None
         if is_build_vocab:
             vocab = Dictionary()
 
-        samples = []
-        with open(ds_file) as data:
-            for i, line in enumerate(data):
-                sample = json.loads(line)
-                samples.append(sample)
-                sentence_ids = encode_line(sample['sentence'], vocab, add_if_not_exist=is_build_vocab)
-                sample['sentence_ids'] = sentence_ids
+        classes = LabelIndexer()
+        concepts = LabelIndexer()
 
-                label_ids = encode_line(sample['label'], vocab)
-                sample['label_ids'] = label_ids
-                if limit is not None and i > limit:
-                    break
+        new_samples = []
+        for i, sample in enumerate(samples):
+            if self.prompt_mode == 'natural':
+                sample['encoded_prompt'] = encode_line(sample['prompt'], vocab, add_if_not_exist=is_build_vocab)
+            elif self.prompt_mode == 'concept' and 'concept' in sample:
+                concepts.add(sample['concept'])
+            else:
+                raise ValueError(f'No such prompt_mode "{self.prompt_mode}"')
+
+            if self.target_mode == 'natural':
+                sample['encoded_target'] = encode_line(sample['target'], vocab, add_if_not_exist=is_build_vocab)
+            elif self.target_mode == 'class':
+                classes.add(sample['target'])
+            else:
+                raise ValueError(f'No such target_mode "{self.target_mode}"')
+
+            new_samples.append(sample)
+
+            if limit is not None and i > limit:
+                break
 
         vocab.finalize()
-        return samples, vocab
 
-    def __init__(self, root, split='train', vocab=None, img_transform=None, limit=None, download=False):
-        ds_file = os.path.join(root, split, f'{split}.json')
-        if download:
-            download_if_needed('NLVR', root, ds_file)
-        samples, vocab = NLVR.load(ds_file, vocab=vocab, limit=limit)
-        self.samples = samples
+        cls_to_idx = classes.get_index()
+        concept_to_idx = concepts.get_index()
+
+        for sample in new_samples:
+            if self.prompt_mode == 'concept' and 'concept' in sample:
+                sample['encoded_prompt'] = concept_to_idx[sample['concept']]
+
+            if self.target_mode == 'class':
+                sample['encoded_target'] = cls_to_idx[sample['target']]
+
+        self.samples = new_samples
+        self.cls_to_idx = cls_to_idx
+        self.concept_to_idx = concept_to_idx
+
         self.vocab = vocab
-        self.images_dir = os.path.join(root, split, 'images')
-        self.split = split
-        self.N = max(map(lambda s: len(s['sentence_ids']), samples))
+        if self.prompt_mode == 'natural':
+            self.N_prompt = max(map(lambda s: len(s['encoded_prompt']), new_samples))
+        else:
+            self.N_prompt = 1
 
-        if img_transform is None:
-            img_transform = tv.transforms.Compose([
-                tv.transforms.Pad((0, 150), fill=300, padding_mode='constant'),
-                tv.transforms.Resize(224),
-                tv.transforms.ToTensor(),
-                tv.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ])
-        self.img_transform = img_transform
+        if self.target_mode == 'natural':
+            self.N_target = max(map(lambda s: len(s['encoded_target']), new_samples))
+        else:
+            self.N_target = 1
 
     def __len__(self):
         return len(self.samples)
 
-    def img_path(self, sample):
-        img_id = sample['identifier']
-        img_file = f'{self.split}-{img_id}-0.png'
-        return os.path.join(self.images_dir, sample['directory'], img_file)
-
     def __getitem__(self, index):
         sample = self.samples[index]
 
-        sentence = sample['sentence_ids']
-        label = sample['label_ids']
+        prompt = sample['encoded_prompt']
+        target = sample['encoded_target']
 
-        pad = self.N - len(sentence)
-        sentence_tensor = F.pad(sentence, (0, pad), value=self.vocab.pad_index)
-        labels_tensor = label
+        if self.prompt_mode == 'natural':
+            pad = self.N_prompt - len(prompt)
+            prompt = F.pad(prompt, (0, pad), value=self.vocab.pad_index)
 
-        sample_img = tv.datasets.folder.default_loader(self.img_path(sample))
-        if self.img_transform is not None:
-            sample_img = self.img_transform(sample_img)
+        if self.target_mode == 'natural':
+            pad = self.N_target - len(target)
+            target = F.pad(target, (0, pad), value=self.vocab.pad_index)
+
+        img = tv.datasets.folder.default_loader(os.path.join(self.root_dir, sample['image_path']))
+        img = self.img_transform(img)
 
         return {
-            'X': sentence_tensor,
-            'target': labels_tensor,
-            'question': sample['sentence'],
-            'answer': sample['label'],
-            'img': sample_img
+            'prompt': prompt,
+            'img': img,
+            'target': target
         }
 
     def __repr__(self):
         S = len(self.samples)
-        return f'Samples: {S} (N={self.N})\n' \
+        return f'Root: {self.root_dir} \n' \
+               f'Samples: {S} (N_prompt={self.N_prompt}, N_target={self.N_target})\n' \
+               f'Concepts: {len(self.concept_to_idx)} \n' \
+               f'Classes: {len(self.cls_to_index)} \n' \
                f'Vocab Tokens:{len(self.vocab)}'
+
+
+class BasicCurriculum(BaseDataset):
+
+    def __init__(self, root, split='train', vocab=None, prompt_mode='concept', target_mode='class', limit=None):
+        root_dir = os.path.join(root, split)
+
+        ds_file = os.path.join(root, split, f'dataset.json')
+        with open(ds_file) as data:
+            samples = json.load(data)
+
+        for sample in samples:
+            sample['prompt'] = sample['question']
+            sample['target'] = sample['answer']
+
+        img_transform = tv.transforms.Compose([
+            tv.transforms.Resize(256),
+            tv.transforms.CenterCrop(224),
+            tv.transforms.ToTensor(),
+            tv.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+        super().__init__(root_dir, samples, img_transform, vocab=vocab, prompt_mode=prompt_mode, target_mode=target_mode, limit=limit)
+
+
+class NLVR(BaseDataset):
+
+    def __init__(self, root, split='train', vocab=None, target_mode='natural', limit=None, download=False):
+        ds_file = os.path.join(root, split, f'{split}.json')
+        if download:
+            download_if_needed('NLVR', root, ds_file)
+
+        samples = []
+        with open(ds_file) as data:
+            for line in data:
+                sample = json.loads(line)
+                samples.append(sample)
+                sample['prompt'] = sample['sentence']
+                sample['target'] = sample['label']
+                img_id = sample['identifier']
+                img_file = f'{split}-{img_id}-0.png'
+                sample['image_path'] = os.path.join('images', sample['directory'], img_file)
+
+        img_transform = tv.transforms.Compose([
+            tv.transforms.Pad((0, 150), fill=300, padding_mode='constant'),
+            tv.transforms.Resize(224),
+            tv.transforms.ToTensor(),
+            tv.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+        super().__init__(os.path.join(root, split), samples, img_transform,
+                         vocab=vocab, prompt_mode='natural', target_mode=target_mode, limit=limit)
+
+
+
+
 
 
 

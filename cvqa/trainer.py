@@ -1,5 +1,9 @@
+import logging
 import statistics
 import os
+import warnings
+
+from datetime import datetime
 
 import torch
 import torch.utils as torch_utils
@@ -12,23 +16,26 @@ import fairseq.utils as fairseq_utils
 from tqdm import tqdm
 
 
-class Trainer:
+class Trainer(object):
 
-    def __init__(self, ignore_index, log_dir=None):
+    def __init__(self, ignore_index=None, log_dir=None):
         self.ignore_index = ignore_index
 
         self.is_cuda = False
         if torch.cuda.is_available():
             self.is_cuda = True
 
-        if log_dir is not None:
-            from datetime import datetime
-            current_time = datetime.now().strftime('%b%d_%H-%M-%S')
-            log_dir = os.path.join(log_dir, f'run-{current_time}')
-        self.summary_writer = SummaryWriter(log_dir)
+        self.log_dir = log_dir
+
+        self.summary_writer = None
 
     def train(self, model, train_dataset, dev_dataset, optimizer, num_epochs=10, batch_size=32):
-        self.summary_writer = SummaryWriter(self.summary_writer.log_dir)
+        log_dir = self.log_dir
+        if log_dir is not None:
+            current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+            log_dir = os.path.join(self.log_dir, f'run-{current_time}')
+
+        self.summary_writer = SummaryWriter(log_dir)
 
         training_generator = torch_utils.data.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
@@ -38,7 +45,18 @@ class Trainer:
             dev_dataset, batch_size=batch_size, shuffle=True
         )
 
-        ce_crit = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
+        # try:
+        #     sample = next(iter(training_generator))
+        #     self.summary_writer.add_graph(model, self._model_input(sample))
+        # except:
+        #     pass
+            # logging.exception("Error writing graph")
+            # warnings.warn("deprecated", DeprecationWarning)
+
+        if self.ignore_index is not None:
+            ce_crit = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
+        else:
+            ce_crit = nn.CrossEntropyLoss()
 
         train_loss = []
         train_acc = []
@@ -70,12 +88,11 @@ class Trainer:
 
         return train_loss, train_acc, dev_acc
 
-    def model_fwd(self, model, sample):
-        model_output = model(src_tokens=sample['X'], src_img=sample['img'], prev_output_tokens=sample['target'])
-        logits = model_output[0]  # [B, No, V]
-        logits = logits.view(-1, logits.size(-1))  # [B*No, V]
-        targets = sample['target'].view(-1, 1)  # [B*No]
-        return logits, targets
+    def _model_input(self, sample):
+        raise NotImplementedError()
+
+    def _model_fwd(self, model, sample):
+        raise NotImplementedError()
 
     def train_step(self, model, sample, optimizer, criterion):
         # to make reproducible with checkpoints, set seed here appropriately (see example in LabelSmoothedCrossEntropyCriterion)
@@ -84,15 +101,7 @@ class Trainer:
         optimizer.zero_grad()
         sample = self.prep_sample(sample)
 
-        #     model_output: (
-        #         0: Tensor[B, No, V], --> real output, aka logits, the unnormalized scores over each token
-        #         1: {
-        #             attn: Tensor: [B, No, Ni],  --> cross attention
-        #             inner_states: list[Tensor: [?, ?, d]]  --> looks like decoder internal layers
-        #         }
-        #     )
-
-        logits, targets = self.model_fwd(model, sample)
+        logits, targets = self._model_fwd(model, sample)
 
         loss = criterion(logits, targets.squeeze())
 
@@ -105,7 +114,6 @@ class Trainer:
 
         logging_output = {
             'loss': loss.data.item(),
-            # 'sample_size': sample_size,
         }
         return logging_output
 
@@ -137,15 +145,52 @@ class Trainer:
 
                 sample = self.prep_sample(sample)
 
-                logits, y_true = self.model_fwd(model, sample)
+                logits, y_true = self._model_fwd(model, sample)
 
                 _, y_pred = torch.max(logits.data, -1)
 
-                mask = y_true.ne(self.ignore_index)
-                y_true = y_true[mask]
-                y_pred = y_pred.unsqueeze(1)[mask]
+                if self.ignore_index is not None:
+                    mask = y_true.ne(self.ignore_index)
+                    y_true = y_true[mask]
+                    y_pred = y_pred.unsqueeze(1)[mask]
 
                 correct += (y_pred == y_true).sum()
                 total += y_true.size(0)
 
             return float(correct) / float(total)
+
+
+class VQATrainer(Trainer):
+
+    def __init__(self, ignore_index=None, log_dir=None):
+        super().__init__(ignore_index, log_dir)
+
+    def _model_input(self, sample):
+        return sample['prompt'], sample['img'], sample['target']
+
+    def _model_fwd(self, model, sample):
+        model_output = model(src_tokens=sample['prompt'], src_img=sample['img'], prev_output_tokens=sample['target'])
+        #     model_output: (
+        #         0: Tensor[B, No, V], --> real output, aka logits, the unnormalized scores over each token
+        #         1: {
+        #             attn: Tensor: [B, No, Ni],  --> cross attention
+        #             inner_states: list[Tensor: [?, ?, d]]  --> looks like decoder internal layers
+        #         }
+        #     )
+        logits = model_output[0]  # [B, No, V]
+        logits = logits.view(-1, logits.size(-1))  # [B*No, V]
+        targets = sample['target'].view(-1, 1)  # [B*No]
+        return logits, targets
+
+
+class ImageClassifierTrainer(Trainer):
+
+    def __init__(self, log_dir=None):
+        super().__init__(log_dir=log_dir)
+
+    def _model_input(self, sample):
+        return sample['prompt'], sample['img']
+
+    def _model_fwd(self, model, sample):
+        model_output = model(*self._model_input(sample))
+        return model_output, sample['target']
