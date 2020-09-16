@@ -99,7 +99,7 @@ class VQAConcept2ClassModel(nn.Module):
         self.num_classes = num_classes
 
         if img_perceptor is None:
-            img_perceptor = BasicImgModel(30)
+            img_perceptor = BasicImgModel(20)
         self.img_perceptor = img_perceptor
 
         self.prompt_reader_layer = nn.Linear(num_concepts, num_classes)
@@ -140,48 +140,17 @@ class BasicImgModel(nn.Module):
         x = bb.bn1(x)
         x = bb.relu(x)
         x = bb.maxpool(x)
+
+        x = bb.layer1(x)
+        x = bb.layer2(x)
+        x = bb.layer3(x)
+
         return x
 
     def forward(self, img):
         img_features = self.__backbone_forward(img)
         output = self.fc(torch.flatten(img_features, start_dim=1))
         return output
-
-
-class PerceptionClfModel(nn.Module):
-
-    def __init__(self, query_dim, output_dim):
-        super().__init__()
-        self.query_dim = query_dim
-        self.backbone = tv.models.resnet18(pretrained=True)
-        backbone_output = self.__backbone_forward(torch.rand(1, 3, 224, 224))
-        B, C, H, W = backbone_output.shape
-        self.fc = nn.Linear(C * H * W, output_dim)
-        self.query_layer = nn.Linear(query_dim, output_dim)
-        # self.qW = torch.tensor([
-        #     [1, 0, 1, 1, 0],
-        #     [0, 1, 0, 0, 1]
-        # ]).float()
-
-    def __backbone_forward(self, img_sample):
-        bb = self.backbone
-        x = img_sample
-        x = bb.conv1(x)
-        x = bb.bn1(x)
-        x = bb.relu(x)
-        x = bb.maxpool(x)
-        return x
-
-    def forward(self, img, concept):
-        img_features = self.__backbone_forward(img)
-        one_hot_concept = torch.nn.functional.one_hot(concept, num_classes=self.query_dim).to(device).float()
-        mask = self.query_layer(one_hot_concept)
-        # mask = one_hot_concept @ self.qW
-        output = self.fc(torch.flatten(img_features, start_dim=1))
-        return output*mask
-
-
-
 
 
 

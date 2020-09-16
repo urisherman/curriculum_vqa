@@ -23,7 +23,7 @@ else:
 
 class Trainer(object):
 
-    def __init__(self, ignore_index=None, log_dir=None):
+    def __init__(self, ignore_index=None, log_dir=None, log_graph=True):
         self.ignore_index = ignore_index
 
         self.is_cuda = False
@@ -31,7 +31,7 @@ class Trainer(object):
             self.is_cuda = True
 
         self.log_dir = log_dir
-
+        self.log_graph = log_graph
         self.summary_writer = None
 
     def train(self, model, train_dataset, dev_dataset, optimizer, num_epochs=10, batch_size=32):
@@ -53,13 +53,14 @@ class Trainer(object):
             dev_dataset, batch_size=batch_size, shuffle=True
         )
 
-        # try:
-        #     sample = next(iter(training_generator))
-        #     self.summary_writer.add_graph(model, self._model_input(sample))
-        # except:
-        #     pass
-            # logging.exception("Error writing graph")
-            # warnings.warn("deprecated", DeprecationWarning)
+        if self.log_graph:
+            try:
+                sample = next(iter(training_generator))
+                self.summary_writer.add_graph(model, self._model_input(sample))
+            except:
+                pass
+                # logging.exception("Error writing graph")
+                # warnings.warn("deprecated", DeprecationWarning)
 
         if self.ignore_index is not None:
             ce_crit = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
@@ -171,7 +172,7 @@ class Trainer(object):
 class VQATrainer(Trainer):
 
     def __init__(self, ignore_index=None, log_dir=None):
-        super().__init__(ignore_index, log_dir)
+        super().__init__(ignore_index, log_dir, log_graph=False)
 
     def _model_input(self, sample):
         return sample['prompt'], sample['img'], sample['target']
