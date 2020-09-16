@@ -162,7 +162,7 @@ class BaseDataset(torch_utils.data.Dataset):
         return f'Root: {self.root_dir} \n' \
                f'Samples: {S} (N_prompt={self.N_prompt}, N_target={self.N_target})\n' \
                f'Concepts: {len(self.concept_to_idx)} \n' \
-               f'Classes: {len(self.cls_to_index)} \n' \
+               f'Classes: {len(self.cls_to_idx)} \n' \
                f'Vocab Tokens:{len(self.vocab)}'
 
 

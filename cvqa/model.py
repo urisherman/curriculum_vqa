@@ -1,5 +1,7 @@
 import torch
 import torchvision as tv
+import torch.nn.functional as F
+import math
 
 from torch import nn
 
@@ -153,7 +155,88 @@ class BasicImgModel(nn.Module):
         return output
 
 
+class VQAPromptOpModel(nn.Module):
 
+    @staticmethod
+    def build(d, dataset, c=None, img_perceptor=None):
+        prompt_embeddings, target_embeddings = build_embeddings(d, dataset, c=c)
+        return VQAPromptOpModel(prompt_embeddings, target_embeddings, img_perceptor=img_perceptor)
+
+    def __init__(self, prompt_embedding, target_embedding, img_perceptor=None):
+        super().__init__()
+
+        if img_perceptor is None:
+            img_perceptor = BasicImgModel(20)
+        self.img_perceptor = img_perceptor
+        img_embedding = img_perceptor(torch.rand(1, 3, 224, 224))
+        B, P = img_embedding.shape
+
+        from torch.nn import TransformerEncoder, TransformerEncoderLayer
+        dims = {
+            'P': P,  # perception embedding dim
+            'V': prompt_embedding.num_embeddings,  # num of prompt tokens
+            'd': prompt_embedding.embedding_dim,  # prompt tokens embedding
+            'L': target_embedding.num_embeddings,  # num of target toekns
+            'c': target_embedding.embedding_dim  # target tokens embedding
+        }
+        self.dims = dims
+        self.prompt_embedding = prompt_embedding
+        self.target_embedding = target_embedding
+
+        # The operators operator
+        # Given an embedded prompt, output a P --> c operator
+        self.W_op = nn.Parameter(torch.Tensor(dims['P'], dims['d'], dims['c']))
+        nn.init.kaiming_uniform_(self.W_op, a=math.sqrt(5))
+
+        self.layer_norm = nn.LayerNorm([dims['c']])
+
+    def forward(self, prompt, img):
+        if len(prompt.shape) == 1:
+            prompt = prompt.view(-1, 1)
+        prompt_encoded = self.prompt_embedding(prompt)  # [B x N_prompt x d]
+        prompt_encoded = torch.sum(prompt_encoded, dim=1)  # [B x d]
+        prompt_op = torch.einsum('pdc,bd->pc', self.W_op, prompt_encoded)  # [P x c]
+
+        img_features = self.img_perceptor(img)  # [B, P]
+
+        pred_embeded = F.linear(img_features, prompt_op.T)  # [B, c]
+        pred_embeded = self.layer_norm(pred_embeded)
+
+        t_embeddings = self.target_embedding.weight
+        logits = pred_embeded @ t_embeddings.T
+        return logits
+
+
+def build_embeddings(d, dataset, c=None):
+    if dataset.prompt_mode == 'natural' and dataset.target_mode == 'natural':
+        prompt_embeddings = Embedding(len(dataset.vocab), d, padding_idx=0)
+        target_embeddings = prompt_embeddings
+    else:
+        if dataset.prompt_mode == 'natural':
+            V = len(dataset.vocab)
+        else:
+            V = len(dataset.concept_to_idx)
+
+        if dataset.target_mode == 'natural':
+            L = len(dataset.vocab)
+        else:
+            L = len(dataset.cls_to_idx)
+
+        if c is None:
+            c = d
+
+        prompt_embeddings = Embedding(V, d, padding_idx=0)
+        target_embeddings = Embedding(L, c, padding_idx=0)
+
+    return prompt_embeddings, target_embeddings
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+    # nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
+    nn.init.constant_(m.weight[padding_idx], 0)
+    return m
 
 
 def fariseq_transformer_args(params):

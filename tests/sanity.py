@@ -51,3 +51,23 @@ class SanityTest(unittest.TestCase):
 
         my_trainer = trainer.ImageClassifierTrainer(log_dir=tensorboard_root)
         my_trainer.train(viz_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=16)
+
+    def __get_lesson1_datasets(self, prompt_mode='concept', target_mode='class'):
+        train_dataset = datasets.BasicCurriculum(curriculum_root, 'train', prompt_mode=prompt_mode, target_mode=target_mode, limit=50)
+        dev_dataset = datasets.BasicCurriculum(curriculum_root, 'dev', prompt_mode=prompt_mode, target_mode=target_mode, limit=10)
+        return train_dataset, dev_dataset
+
+    def test_promptop_training(self):
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        my_trainer = trainer.ImageClassifierTrainer(log_dir=tensorboard_root)
+
+        train_dataset, dev_dataset = self.__get_lesson1_datasets('concept', 'class')
+        viz_model = model.VQAPromptOpModel.build(2, train_dataset, c=5)
+        optimizer = torch.optim.Adam(viz_model.parameters(), lr=1.5e-3)
+        my_trainer.train(viz_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=16)
+
+        train_dataset, dev_dataset = self.__get_lesson1_datasets('natural', 'class')
+        viz_model = model.VQAPromptOpModel.build(2, train_dataset, c=5)
+        optimizer = torch.optim.Adam(viz_model.parameters(), lr=1.5e-3)
+        my_trainer.train(viz_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=16)
