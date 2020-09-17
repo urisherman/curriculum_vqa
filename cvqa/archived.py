@@ -60,3 +60,25 @@
 #     #     self.set_num_updates(self.get_num_updates() + 1)
 #     fairseq_utils.clear_cuda(args, 0)
 #     return logging_output
+
+
+
+
+
+# EINSUM tests
+
+# B = 2
+# d = 3
+# c = 4
+# P = 5
+#
+# op = np.random.randn(P, d, c)
+# p_enc = np.random.randn(B, d)
+# img_feat = np.random.randn(B, P)
+#
+# p_ops = np.einsum('pdc,bd->bpc', op, p_enc)
+#
+# np.einsum('bpc,bp->bc', p_ops, img_feat)
+# np.einsum('bp,bpc->bc', img_feat, p_ops)
+# np.einsum('bpc,bp->bc', p_ops[[0]], img_feat[[0]])
+# torch.einsum('pdc,bd->bpc', viz_model.W_op, prompt_encoded)

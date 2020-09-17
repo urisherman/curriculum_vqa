@@ -56,6 +56,7 @@ class Trainer(object):
         if self.log_graph:
             try:
                 sample = next(iter(training_generator))
+                sample = self.prep_sample(sample)
                 self.summary_writer.add_graph(model, self._model_input(sample))
             except:
                 pass
@@ -167,6 +168,22 @@ class Trainer(object):
                 total += y_true.size(0)
 
             return float(correct) / float(total)
+
+    def get_predictions(self, model, dataset):
+        res = torch.zeros(len(dataset), 3)
+        model.eval()
+        with torch.set_grad_enabled(False):
+            for i, sample in enumerate(dataset):
+                sample['img'] = sample['img'].unsqueeze(0)
+                sample['prompt'] = torch.tensor([sample['prompt']])
+                sample['target'] = torch.tensor([sample['target']])
+                sample = self.prep_sample(sample)
+
+                logits, y_true = self._model_fwd(model, sample)
+
+                _, y_pred = torch.max(logits.data, -1)
+                res[i] = torch.tensor([i, y_true, y_pred])
+        return res
 
 
 class VQATrainer(Trainer):

@@ -1,6 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from textwrap import wrap
+import pandas as pd
+import torch
+from sklearn import metrics
+import seaborn as sn
+
+from cvqa import utils
 
 
 def plot_training(train_loss, train_acc, dev_acc):
@@ -45,3 +51,39 @@ def show_samples(dataset, k=4):
                title=sample['text_prompt'] + ' "' + sample['text_target'] + '"',
                ax=axs[i])
 
+
+def plot_conf_mat(y_true, y_pred, labels):
+    conf_mat = metrics.confusion_matrix(y_true, y_pred)
+    conf_df = pd.DataFrame(conf_mat, index=labels, columns=labels)
+
+    x_ax_length = len(labels)*1.5
+    fig, ax = plt.subplots(figsize = (x_ax_length, x_ax_length-1.5))
+    hm = sn.heatmap(conf_df, annot=True, annot_kws={'fontsize': 16}, fmt='g', ax=ax)
+    hm.set_xticklabels(hm.get_xmajorticklabels(), fontsize=14)
+    hm.set_yticklabels(hm.get_ymajorticklabels(), fontsize=14)
+
+    ax.set_xlabel('Pred', fontsize=18)
+    ax.set_ylabel('True', fontsize=18)
+
+
+def test_sample(model, dataset, sample_idx=None):
+    if sample_idx is None:
+        sample_idx = np.random.randint(len(dataset))
+
+    sample = dataset[sample_idx]
+    sample['text_prompt'] = dataset.samples[sample_idx]['prompt']
+    sample['text_target'] = dataset.samples[sample_idx]['target']
+
+    sample['img'] = sample['img'].unsqueeze(0)
+    sample['prompt'] = torch.tensor([sample['prompt']])
+    sample['target'] = torch.tensor([sample['target']])
+    sample = utils.sample_to_cuda(sample)
+
+    logits = model(sample['prompt'], sample['img'])
+    _, y_pred = torch.max(logits, -1)
+    y_pred = y_pred.cpu().numpy()[0]
+
+    print(sample['text_prompt'])
+    print('True: ' + sample['text_target'])
+    print('Pred: ' + dataset.idx_to_cls[y_pred])
+    imshow(sample['img'][0].cpu())

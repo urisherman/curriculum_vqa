@@ -55,6 +55,14 @@ class LabelIndexer:
 
 class BaseDataset(torch_utils.data.Dataset):
 
+    @staticmethod
+    def load_train_dev():
+        """
+        TODO: implement and handle mutual cls_to_index etc
+        :return:
+        """
+        pass
+
     def __init__(self, root_dir, samples, img_transform, vocab=None, prompt_mode='concept', target_mode='class', limit=None):
         """
         samples should be
@@ -120,6 +128,9 @@ class BaseDataset(torch_utils.data.Dataset):
         self.cls_to_idx = cls_to_idx
         self.concept_to_idx = concept_to_idx
 
+        self.idx_to_cls = {v: k for k, v in cls_to_idx.items()}
+        self.idx_to_concept = {v: k for k, v in concept_to_idx.items()}
+
         self.vocab = vocab
         if self.prompt_mode == 'natural':
             self.N_prompt = max(map(lambda s: len(s['encoded_prompt']), new_samples))
@@ -154,7 +165,8 @@ class BaseDataset(torch_utils.data.Dataset):
         return {
             'prompt': prompt,
             'img': img,
-            'target': target
+            'target': target,
+            # 'sample_index': index
         }
 
     def __repr__(self):

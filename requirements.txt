@@ -3,6 +3,7 @@ scipy == 1.4.1
 pandas
 sklearn
 matplotlib
+seaborn
 
 torch
 fairseq

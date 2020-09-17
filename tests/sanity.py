@@ -8,7 +8,7 @@ import pathlib
 
 import torch
 
-from cvqa import datasets, model, trainer
+from cvqa import datasets, models, trainers
 
 project_root = pathlib.Path(__file__).parent.parent.absolute()
 data_root = os.path.join(project_root, 'data-bin')
@@ -32,8 +32,8 @@ class SanityTest(unittest.TestCase):
             'd': 12  # embedding dimension
         }
 
-        vqa_model = model.build_model(vocab, params)
-        my_trainer = trainer.VQATrainer(vocab.pad_index, log_dir=tensorboard_root)
+        vqa_model = models.build_model(vocab, params)
+        my_trainer = trainers.VQATrainer(vocab.pad_index, log_dir=tensorboard_root)
 
         optimizer = torch.optim.Adam(vqa_model.parameters(), lr=1e-4)
 
@@ -45,11 +45,11 @@ class SanityTest(unittest.TestCase):
         train_dataset = datasets.BasicCurriculum(curriculum_root, 'train', limit=50)
         dev_dataset = datasets.BasicCurriculum(curriculum_root, 'dev', limit=10)
 
-        viz_model = model.VQAConcept2ClassModel(len(train_dataset.concept_to_idx), len(train_dataset.cls_to_idx))
+        viz_model = models.VQAConcept2ClassModel(len(train_dataset.concept_to_idx), len(train_dataset.cls_to_idx))
 
         optimizer = torch.optim.Adam(viz_model.parameters(), lr=1e-4)
 
-        my_trainer = trainer.ImageClassifierTrainer(log_dir=tensorboard_root)
+        my_trainer = trainers.ImageClassifierTrainer(log_dir=tensorboard_root)
         my_trainer.train(viz_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=16)
 
     def __get_lesson1_datasets(self, prompt_mode='concept', target_mode='class'):
@@ -60,14 +60,14 @@ class SanityTest(unittest.TestCase):
     def test_promptop_training(self):
         np.random.seed(seed)
         torch.manual_seed(seed)
-        my_trainer = trainer.ImageClassifierTrainer(log_dir=tensorboard_root)
+        my_trainer = trainers.ImageClassifierTrainer(log_dir=tensorboard_root)
 
         train_dataset, dev_dataset = self.__get_lesson1_datasets('concept', 'class')
-        viz_model = model.VQAPromptOpModel.build(2, train_dataset, c=5)
+        viz_model = models.VQAPromptOpModel.build(2, train_dataset, c=5)
         optimizer = torch.optim.Adam(viz_model.parameters(), lr=1.5e-3)
         my_trainer.train(viz_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=16)
 
         train_dataset, dev_dataset = self.__get_lesson1_datasets('natural', 'class')
-        viz_model = model.VQAPromptOpModel.build(2, train_dataset, c=5)
+        viz_model = models.VQAPromptOpModel.build(2, train_dataset, c=5)
         optimizer = torch.optim.Adam(viz_model.parameters(), lr=1.5e-3)
         my_trainer.train(viz_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=16)

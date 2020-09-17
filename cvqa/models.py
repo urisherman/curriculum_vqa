@@ -1,6 +1,5 @@
 import torch
 import torchvision as tv
-import torch.nn.functional as F
 import math
 
 from torch import nn
@@ -185,7 +184,7 @@ class VQAPromptOpModel(nn.Module):
 
         # The operators operator
         # Given an embedded prompt, output a P --> c operator
-        self.W_op = nn.Parameter(torch.Tensor(dims['P'], dims['d'], dims['c']))
+        self.W_op = nn.Parameter(torch.Tensor(dims['d'], dims['P'], dims['c']))
         nn.init.kaiming_uniform_(self.W_op, a=math.sqrt(5))
 
         self.layer_norm = nn.LayerNorm([dims['c']])
@@ -195,11 +194,13 @@ class VQAPromptOpModel(nn.Module):
             prompt = prompt.view(-1, 1)
         prompt_encoded = self.prompt_embedding(prompt)  # [B x N_prompt x d]
         prompt_encoded = torch.sum(prompt_encoded, dim=1)  # [B x d]
-        prompt_op = torch.einsum('pdc,bd->pc', self.W_op, prompt_encoded)  # [P x c]
+        prompts_ops = torch.einsum('bd,dpc->bpc', prompt_encoded, self.W_op)  # [B x P x c]
 
         img_features = self.img_perceptor(img)  # [B, P]
 
-        pred_embeded = F.linear(img_features, prompt_op.T)  # [B, c]
+        # pred_embeded = F.linear(img_features, prompt_op.T)  # [B, c]
+        pred_embeded = torch.einsum('bp,bpc->bc', img_features, prompts_ops) # [B, c]
+
         pred_embeded = self.layer_norm(pred_embeded)
 
         t_embeddings = self.target_embedding.weight
@@ -212,30 +213,35 @@ def build_embeddings(d, dataset, c=None):
         prompt_embeddings = Embedding(len(dataset.vocab), d, padding_idx=0)
         target_embeddings = prompt_embeddings
     else:
+
         if dataset.prompt_mode == 'natural':
             V = len(dataset.vocab)
+            prompt_pad_idx = 0
         else:
             V = len(dataset.concept_to_idx)
+            prompt_pad_idx = None
 
         if dataset.target_mode == 'natural':
             L = len(dataset.vocab)
+            target_pad_idx = 0
         else:
             L = len(dataset.cls_to_idx)
+            target_pad_idx = None
 
         if c is None:
             c = d
 
-        prompt_embeddings = Embedding(V, d, padding_idx=0)
-        target_embeddings = Embedding(L, c, padding_idx=0)
-
+        prompt_embeddings = Embedding(V, d, padding_idx=prompt_pad_idx)
+        target_embeddings = Embedding(L, c, padding_idx=target_pad_idx)
     return prompt_embeddings, target_embeddings
 
 
-def Embedding(num_embeddings, embedding_dim, padding_idx):
+def Embedding(num_embeddings, embedding_dim, padding_idx=None):
     m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
     nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
-    # nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
-    nn.init.constant_(m.weight[padding_idx], 0)
+    if padding_idx is not None:
+        # nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
+        nn.init.constant_(m.weight[padding_idx], 0)
     return m
 
 
