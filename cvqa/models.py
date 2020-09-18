@@ -9,7 +9,7 @@ from fairseq.models.transformer import TransformerModel, TransformerEncoder, Tra
 
 import argparse
 
-from cvqa import fairseq_misc
+from cvqa import fairseq_misc, utils
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -17,19 +17,18 @@ else:
     device = torch.device("cpu")
 
 
-def build_model(vocab, params):
-    args = fariseq_transformer_args(params)
-    tokens_embedding = fairseq_misc.build_embedding(vocab, params['d'])
-    encoder = TransformerEncoder(args, vocab, tokens_embedding)
-    decoder = TransformerDecoder(args, vocab, tokens_embedding,
-                                 no_encoder_attn=getattr(args, 'no_cross_attention', False))
-
-    # return TransformerModel(args, encoder, decoder)
-    img_percept = Resnet18PerceptionModel(params['d'])
-    return VQAModelV0(encoder, img_percept, decoder)
-
-
 class VQAModelV0(nn.Module):
+
+    @staticmethod
+    def build(vocab, params):
+        args = fariseq_transformer_args(params)
+        tokens_embedding = fairseq_misc.build_embedding(vocab, params['d'])
+        encoder = TransformerEncoder(args, vocab, tokens_embedding)
+        decoder = TransformerDecoder(args, vocab, tokens_embedding,
+                                     no_encoder_attn=getattr(args, 'no_cross_attention', False))
+
+        img_percept = Resnet18PerceptionModel(params['d'])
+        return VQAModelV0(encoder, img_percept, decoder)
 
     def __init__(self, text_encoder, img_pereptor, decoder):
         super().__init__()
@@ -50,14 +49,21 @@ class VQAModelV0(nn.Module):
         comodal_pad_mask = torch.cat([encoder_out.encoder_padding_mask, img_pad_mask], dim=1)
 
         decoder_in = EncoderOut(
-            encoder_out=comodal_seq,  # T x B x C
-            encoder_padding_mask=comodal_pad_mask,  # B x T
-            encoder_embedding=None,  # B x T x C
-            encoder_states=[],  # List[T x B x C]
+            encoder_out=comodal_seq,  # N_in x B x d
+            encoder_padding_mask=comodal_pad_mask,  # B x N_in
+            encoder_embedding=None,  # B x N_in x d
+            encoder_states=[],  # List[N_in x B x d]
         )
 
         decoder_out = self.decoder(prev_output_tokens, encoder_out=decoder_in)
-        return decoder_out
+        #     decoder_out: (
+        #         0: Tensor[B, No, V], --> real output, aka logits, the unnormalized scores over each token
+        #         1: {
+        #             attn: Tensor: [B, No, Ni],  --> cross attention
+        #             inner_states: list[Tensor: [?, ?, d]]  --> looks like decoder internal layers
+        #         }
+        #     )
+        return decoder_out[0]
 
 
 class Resnet18PerceptionModel(nn.Module):
@@ -127,12 +133,19 @@ class VQAConcept2ClassModel(nn.Module):
 
 class BasicImgModel(nn.Module):
 
-    def __init__(self, output_dim):
+    def __init__(self, output_dim, output_channels=None):
         super().__init__()
+
         self.backbone = tv.models.resnet18(pretrained=True)
         backbone_output = self.__backbone_forward(torch.rand(1, 3, 224, 224))
         B, C, H, W = backbone_output.shape
-        self.fc = nn.Linear(C * H * W, output_dim)
+
+        if output_channels is not None:
+            self.stem_conv = nn.Conv2d(C, output_channels, kernel_size=1, padding=0, bias=False)
+            self.fc = nn.Linear(H * W, output_dim)
+        else:
+            self.stem_conv = None
+            self.fc = nn.Linear(C * H * W, output_dim)
 
     def __backbone_forward(self, img_sample):
         bb = self.backbone
@@ -149,8 +162,15 @@ class BasicImgModel(nn.Module):
         return x
 
     def forward(self, img):
-        img_features = self.__backbone_forward(img)
-        output = self.fc(torch.flatten(img_features, start_dim=1))
+        bb_output = self.__backbone_forward(img)
+
+        if self.stem_conv is not None:
+            bb_output = self.stem_conv(bb_output)
+            bb_output = torch.flatten(bb_output, start_dim=2)
+        else:
+            bb_output = torch.flatten(bb_output, start_dim=1)
+
+        output = self.fc(bb_output)
         return output
 
 
@@ -210,20 +230,20 @@ class VQAPromptOpModel(nn.Module):
 
 def build_embeddings(d, dataset, c=None):
     if dataset.prompt_mode == 'natural' and dataset.target_mode == 'natural':
-        prompt_embeddings = Embedding(len(dataset.vocab), d, padding_idx=0)
+        prompt_embeddings = Embedding(len(dataset.vocab), d, padding_idx=dataset.vocab.pad_index)
         target_embeddings = prompt_embeddings
     else:
 
         if dataset.prompt_mode == 'natural':
             V = len(dataset.vocab)
-            prompt_pad_idx = 0
+            prompt_pad_idx = dataset.vocab.pad_index
         else:
             V = len(dataset.concept_to_idx)
             prompt_pad_idx = None
 
         if dataset.target_mode == 'natural':
             L = len(dataset.vocab)
-            target_pad_idx = 0
+            target_pad_idx = dataset.vocab.pad_index
         else:
             L = len(dataset.cls_to_idx)
             target_pad_idx = None
@@ -275,3 +295,112 @@ def fariseq_transformer_args(params):
     args.share_decoder_input_output_embed = True
     args.decoder_output_dim = params['d']
     return args
+
+
+def build_fairseq_encoder(vocab, tokens_embeddings, d=16, num_layers=2, ffn_dim=32, heads=2, layerdrop=0, args=None):
+    if args is None:
+        args = fariseq_transformer_args({'d': d})
+    args.encoder_layers = num_layers
+    args.encoder_attention_heads = heads
+    args.encoder_ffn_embed_dim = ffn_dim
+    args.encoder_layerdrop = layerdrop
+    fairseq_encoder = TransformerEncoder(args, vocab, tokens_embeddings)
+    return VQAFairseqEncoder(fairseq_encoder)
+
+
+def build_fairseq_decoder(vocab, tokens_embeddings, d=16, num_layers=2, ffn_dim=32, heads=2, layerdrop=0, args=None):
+    if args is None:
+        args = fariseq_transformer_args({'d': d})
+    args.decoder_layers = num_layers
+    args.decoder_attention_heads = heads
+    args.decoder_ffn_embed_dim = ffn_dim
+    args.decoder_layerdrop = layerdrop
+    fairseq_decoder = TransformerDecoder(args, vocab, tokens_embeddings)
+    # return fairseq_decoder
+    return VQAFairseqDecoder(fairseq_decoder)
+
+
+class VQAFairseqDecoder(nn.Module):
+
+    def __init__(self, base_decoder):
+        super().__init__()
+        self.base_decoder = base_decoder
+
+    def forward(self, prompt_embedding, prompt_pad_mask, img_embedding, prev_output_tokens):
+        """
+        :param prompt_embedding: Tensor[B, N_prompt, d]
+        :param img_embedding: Tensor[B, F_img, d]
+        :param prev_output_tokens: Tensor[B, N_target, d]
+        :return:
+        """
+
+        # concatenate encoded text and img
+        comodal_embedding = torch.cat([prompt_embedding, img_embedding], dim=1)
+
+        # concatenate pad mask
+        B, F_img, _ = img_embedding.shape
+
+        if prompt_pad_mask is None:
+            comodal_pad_mask = None
+        else:
+            # TODO: Verify pads in the middle are not problematic
+            img_pad_mask = utils.torch_zeros(B, F_img) == 1
+            comodal_pad_mask = torch.cat([prompt_pad_mask, img_pad_mask], dim=1)
+
+        decoder_in = EncoderOut(
+            encoder_out=comodal_embedding.transpose(0, 1),  # N_in x B x d
+            encoder_padding_mask=comodal_pad_mask,  # B x N_in
+            encoder_embedding=None,  # B x N_in x d
+            encoder_states=[],  # List[N_in x B x d]
+        )
+
+        decoder_out = self.base_decoder(prev_output_tokens, encoder_out=decoder_in)
+        #     decoder_out: (
+        #         0: Tensor[B, No, V], --> real output, aka logits, the unnormalized scores over each token
+        #         1: {
+        #             attn: Tensor: [B, No, Ni],  --> cross attention
+        #             inner_states: list[Tensor: [?, ?, d]]  --> looks like decoder internal layers
+        #         }
+        #     )
+        return decoder_out[0]
+
+
+class VQAFairseqEncoder(nn.Module):
+
+    def __init__(self, base_encoder):
+        super().__init__()
+        self.base_encoder = base_encoder
+
+    def forward(self, prompt_tokens):
+        """
+        :param prompt_tokens: Tensor[B, N_prompt]
+        :return:
+        """
+        encoder_out = self.base_encoder(prompt_tokens, src_lengths=None)
+        prompt_embedding = encoder_out.encoder_out.transpose(0, 1)
+        pad_mask = encoder_out.encoder_padding_mask
+
+        return prompt_embedding, pad_mask
+
+
+class VQAModelV1(nn.Module):
+
+    @staticmethod
+    def build(vocab, d=16, img_output_features=20):
+        tokens_embeddings = fairseq_misc.build_embedding(vocab, d)
+        prompt_encoder = build_fairseq_encoder(vocab, tokens_embeddings, d=d)
+        vqa_decoder = build_fairseq_decoder(vocab, tokens_embeddings, d=d)
+        img_perceptor = BasicImgModel(d, img_output_features)
+        return VQAModelV1(prompt_encoder, img_perceptor, vqa_decoder)
+
+    def __init__(self, prompt_encoder, img_pereptor, vqa_decoder):
+        super().__init__()
+        self.prompt_encoder = prompt_encoder
+        self.img_pereptor = img_pereptor
+        self.vqa_decoder = vqa_decoder
+
+    def forward(self, prompt_tokens, img, prev_output_tokens):
+        prompt_embedding, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
+        img_embedding = self.img_pereptor(img)
+
+        return self.vqa_decoder(prompt_embedding, prompt_pad_mask, img_embedding, prev_output_tokens)

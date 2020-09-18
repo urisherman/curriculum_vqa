@@ -53,6 +53,19 @@ class LabelIndexer:
         return label_to_idx
 
 
+class WithIndicesDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dataset):
+        self.base_dataset = base_dataset
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, index):
+        s = self.base_dataset[index]
+        s['index'] = index
+        return s
+
+
 class BaseDataset(torch_utils.data.Dataset):
 
     @staticmethod

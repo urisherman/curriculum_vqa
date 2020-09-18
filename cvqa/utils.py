@@ -16,3 +16,10 @@ def sample_to_cuda(sample):
         return fairseq.utils.move_to_cuda(sample)
     else:
         return sample
+
+
+def torch_zeros(*size, **kwargs):
+    t = torch.zeros(*size, **kwargs)
+    if IS_CUDA:
+        t = t.cuda()
+    return t

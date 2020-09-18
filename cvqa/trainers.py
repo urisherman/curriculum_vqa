@@ -15,15 +15,17 @@ import fairseq.utils as fairseq_utils
 
 from tqdm import tqdm
 
+from cvqa import datasets, utils
+
 if torch.cuda.is_available():
     device = torch.device("cuda")
 else:
     device = torch.device("cpu")
 
 
-class Trainer(object):
+class VQATrainer(object):
 
-    def __init__(self, ignore_index=None, log_dir=None, log_graph=True):
+    def __init__(self, ignore_index=None, log_dir=None, log_graph=False, sample_mode='natural'):
         self.ignore_index = ignore_index
 
         self.is_cuda = False
@@ -33,6 +35,7 @@ class Trainer(object):
         self.log_dir = log_dir
         self.log_graph = log_graph
         self.summary_writer = None
+        self.sample_mode = sample_mode
 
     def train(self, model, train_dataset, dev_dataset, optimizer, num_epochs=10, batch_size=32):
         log_dir = self.log_dir
@@ -99,10 +102,21 @@ class Trainer(object):
         return train_loss, train_acc, dev_acc
 
     def _model_input(self, sample):
-        raise NotImplementedError()
+        return sample['prompt'], sample['img'], sample['target']
 
     def _model_fwd(self, model, sample):
-        raise NotImplementedError()
+        logits = model(*self._model_input(sample))
+        targets = sample['target']
+
+        if self.sample_mode == 'natural':
+            # logits.shape == [B, No, V]
+            logits = logits.view(-1, logits.size(-1))  # [B*No, V]
+            targets = sample['target'].flatten()  # [B*No]
+        # else:
+        #     logits.shape == [B, L]
+        #     targets.shape == [B]
+
+        return logits, targets
 
     def train_step(self, model, sample, optimizer, criterion):
         # to make reproducible with checkpoints, set seed here appropriately (see example in LabelSmoothedCrossEntropyCriterion)
@@ -162,54 +176,55 @@ class Trainer(object):
                 if self.ignore_index is not None:
                     mask = y_true.ne(self.ignore_index)
                     y_true = y_true[mask]
-                    y_pred = y_pred.unsqueeze(1)[mask]
+                    y_pred = y_pred[mask]
 
                 correct += (y_pred == y_true).sum()
                 total += y_true.size(0)
 
             return float(correct) / float(total)
 
-    def get_predictions(self, model, dataset):
-        res = torch.zeros(len(dataset), 3)
+    def get_clf_predictions(self, model, dataset):
+        res = utils.torch_zeros(len(dataset), 3, dtype=torch.int64)
         model.eval()
-        with torch.set_grad_enabled(False):
-            for i, sample in enumerate(dataset):
-                sample['img'] = sample['img'].unsqueeze(0)
-                sample['prompt'] = torch.tensor([sample['prompt']])
-                sample['target'] = torch.tensor([sample['target']])
-                sample = self.prep_sample(sample)
 
-                logits, y_true = self._model_fwd(model, sample)
+        dloader = torch.utils.data.DataLoader(
+            datasets.WithIndicesDataset(dataset), shuffle=False, batch_size=64)
+
+        with torch.set_grad_enabled(False):
+            for s in dloader:
+                s = self.prep_sample(s)
+
+                logits, y_true = self._model_fwd(model, s)
 
                 _, y_pred = torch.max(logits.data, -1)
-                res[i] = torch.tensor([i, y_true, y_pred])
-        return res
+                res[s['index']] = torch.stack([s['index'], y_true, y_pred], dim=1)
+        return res.cpu()
 
 
-class VQATrainer(Trainer):
+# class VQATrainer(Trainer):
+#
+#     def __init__(self, ignore_index=None, log_dir=None):
+#         super().__init__(ignore_index, log_dir, log_graph=False)
+#
+#     def _model_input(self, sample):
+#         return sample['prompt'], sample['img'], sample['target']
+#
+#     def _model_fwd(self, model, sample):
+#         model_output = model(src_tokens=sample['prompt'], src_img=sample['img'], prev_output_tokens=sample['target'])
+#         #     model_output: (
+#         #         0: Tensor[B, No, V], --> real output, aka logits, the unnormalized scores over each token
+#         #         1: {
+#         #             attn: Tensor: [B, No, Ni],  --> cross attention
+#         #             inner_states: list[Tensor: [?, ?, d]]  --> looks like decoder internal layers
+#         #         }
+#         #     )
+#         logits = model_output[0]  # [B, No, V]
+#         logits = logits.view(-1, logits.size(-1))  # [B*No, V]
+#         targets = sample['target'].flatten()  # [B*No]
+#         return logits, targets
 
-    def __init__(self, ignore_index=None, log_dir=None):
-        super().__init__(ignore_index, log_dir, log_graph=False)
 
-    def _model_input(self, sample):
-        return sample['prompt'], sample['img'], sample['target']
-
-    def _model_fwd(self, model, sample):
-        model_output = model(src_tokens=sample['prompt'], src_img=sample['img'], prev_output_tokens=sample['target'])
-        #     model_output: (
-        #         0: Tensor[B, No, V], --> real output, aka logits, the unnormalized scores over each token
-        #         1: {
-        #             attn: Tensor: [B, No, Ni],  --> cross attention
-        #             inner_states: list[Tensor: [?, ?, d]]  --> looks like decoder internal layers
-        #         }
-        #     )
-        logits = model_output[0]  # [B, No, V]
-        logits = logits.view(-1, logits.size(-1))  # [B*No, V]
-        targets = sample['target'].view(-1, 1)  # [B*No]
-        return logits, targets
-
-
-class ImageClassifierTrainer(Trainer):
+class ImageClassifierTrainer(VQATrainer):
 
     def __init__(self, log_dir=None):
         super().__init__(log_dir=log_dir)

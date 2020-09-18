@@ -2,8 +2,6 @@ import os
 import unittest
 import numpy as np
 
-import torchvision as tv
-
 import pathlib
 
 import torch
@@ -32,12 +30,23 @@ class SanityTest(unittest.TestCase):
             'd': 12  # embedding dimension
         }
 
-        vqa_model = models.build_model(vocab, params)
+        vqa_model = models.VQAModelV0.build(vocab, params)
         my_trainer = trainers.VQATrainer(vocab.pad_index, log_dir=tensorboard_root)
 
         optimizer = torch.optim.Adam(vqa_model.parameters(), lr=1e-4)
 
         my_trainer.train(vqa_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=10)
+
+    def test_get_clf_predictions(self):
+        train_dataset = datasets.BasicCurriculum(curriculum_root, 'train', prompt_mode='concept', target_mode='class', limit=100)
+
+        params = {
+            'd': 12  # embedding dimension
+        }
+
+        viz_model = models.VQAPromptOpModel.build(2, train_dataset, c=5)
+        my_trainer = trainers.ImageClassifierTrainer(log_dir=tensorboard_root)
+        my_trainer.get_clf_predictions(viz_model, train_dataset)
 
     def test_imgclf_training(self):
         np.random.seed(seed)
