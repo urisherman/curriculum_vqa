@@ -66,7 +66,7 @@ def plot_conf_mat(y_true, y_pred, labels):
     ax.set_ylabel('True', fontsize=18)
 
 
-def test_sample(model, dataset, sample_idx=None):
+def test_clf_sample(model, dataset, sample_idx=None):
     if sample_idx is None:
         sample_idx = np.random.randint(len(dataset))
 
@@ -86,4 +86,38 @@ def test_sample(model, dataset, sample_idx=None):
     print(sample['text_prompt'])
     print('True: ' + sample['text_target'])
     print('Pred: ' + dataset.idx_to_cls[y_pred])
+    imshow(sample['img'][0].cpu())
+
+
+def test_natural_sample(model, dataset, sample_idx=None):
+    if sample_idx is None:
+        sample_idx = np.random.randint(len(dataset))
+
+    sample = dataset[sample_idx]
+    sample['text_prompt'] = dataset.samples[sample_idx]['prompt']
+    sample['text_target'] = dataset.samples[sample_idx]['target']
+
+    if type(sample['prompt']) == int:
+        sample['prompt'] = torch.tensor([sample['prompt']])
+    if type(sample['target']) == int:
+        sample['target'] = torch.tensor([sample['target']])
+
+    sample['img'] = sample['img'].unsqueeze(0)
+    sample['prompt'] = sample['prompt'].unsqueeze(0)
+    sample['target'] = sample['target'].unsqueeze(0)
+
+    sample = utils.sample_to_cuda(sample)
+
+    if dataset.target_mode == 'natural':
+        logits = model(sample['prompt'], sample['img'], sample['target'])
+    else:
+        logits = model(sample['prompt'], sample['img'])
+
+    _, y_pred = torch.max(logits, -1)
+    y_pred = y_pred.cpu().numpy()[0]
+
+    print(sample['text_prompt'])
+    print('Decoded encoded prompt: ' + dataset.vocab.string(sample['prompt']))
+    print('True: ' + sample['text_target'])
+    print('Pred: ' + dataset.vocab.string(y_pred))
     imshow(sample['img'][0].cpu())

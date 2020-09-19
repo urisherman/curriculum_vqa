@@ -27,7 +27,8 @@ x = {
 
 QUESTIONS = [
     ('shape', 'Which shape is this?', '[shape]'),
-    ('color', 'What is the color of this item?', '[color]')
+    ('color', 'What is the color of this item?', '[color]'),
+    ('color', 'Is the item in the image a [shape]?', 'Yes'),
 ]
 
 

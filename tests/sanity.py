@@ -19,6 +19,17 @@ tensorboard_root = os.path.join(project_root, 'tensorboard-logs/tests')
 
 class SanityTest(unittest.TestCase):
 
+    def test_datasets(self):
+        train_dataset = datasets.BasicCurriculum(
+            curriculum_root, 'train', prompt_mode='natural', target_mode='natural', download=False)
+        # dev_dataset = datasets.BasicCurriculum(
+        #     curriculum_root, 'dev', vocab=train_dataset.vocab, prompt_mode='natural', target_mode='natural')
+
+        s = train_dataset[2]
+        print(s['prompt'])
+        print(train_dataset.samples[2]['encoded_prompt'])
+        print(train_dataset.vocab.string(s['prompt']))
+
     def test_vqa_training(self):
         np.random.seed(seed)
         torch.manual_seed(seed)

@@ -125,7 +125,7 @@ class BaseDataset(torch_utils.data.Dataset):
             if limit is not None and i > limit:
                 break
 
-        vocab.finalize()
+        # vocab.finalize()
 
         cls_to_idx = classes.get_index()
         concept_to_idx = concepts.get_index()
