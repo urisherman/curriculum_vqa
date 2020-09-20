@@ -191,7 +191,7 @@ class BaseDataset(torch_utils.data.Dataset):
                f'Vocab Tokens:{len(self.vocab)}'
 
 
-class BasicCurriculum(BaseDataset):
+class Curriculum(BaseDataset):
 
     def __init__(self, root, split='train', vocab=None, prompt_mode='concept', target_mode='class', limit=None, download=True):
         root_dir = os.path.join(root, split)
@@ -203,8 +203,10 @@ class BasicCurriculum(BaseDataset):
             samples = json.load(data)
 
         for sample in samples:
-            sample['prompt'] = sample['question']
-            sample['target'] = sample['answer']
+            if 'question' in sample:
+                sample['prompt'] = sample['question']
+            if 'answer' in sample:
+                sample['target'] = sample['answer']
 
         img_transform = tv.transforms.Compose([
             tv.transforms.Resize(256),

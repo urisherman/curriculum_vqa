@@ -20,7 +20,7 @@ tensorboard_root = os.path.join(project_root, 'tensorboard-logs/tests')
 class SanityTest(unittest.TestCase):
 
     def test_datasets(self):
-        train_dataset = datasets.BasicCurriculum(
+        train_dataset = datasets.Curriculum(
             curriculum_root, 'train', prompt_mode='natural', target_mode='natural', download=False)
         # dev_dataset = datasets.BasicCurriculum(
         #     curriculum_root, 'dev', vocab=train_dataset.vocab, prompt_mode='natural', target_mode='natural')
@@ -49,7 +49,7 @@ class SanityTest(unittest.TestCase):
         my_trainer.train(vqa_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=10)
 
     def test_get_clf_predictions(self):
-        train_dataset = datasets.BasicCurriculum(curriculum_root, 'train', prompt_mode='concept', target_mode='class', limit=100)
+        train_dataset = datasets.Curriculum(curriculum_root, 'train', prompt_mode='concept', target_mode='class', limit=100)
 
         params = {
             'd': 12  # embedding dimension
@@ -62,8 +62,8 @@ class SanityTest(unittest.TestCase):
     def test_imgclf_training(self):
         np.random.seed(seed)
         torch.manual_seed(seed)
-        train_dataset = datasets.BasicCurriculum(curriculum_root, 'train', limit=50)
-        dev_dataset = datasets.BasicCurriculum(curriculum_root, 'dev', limit=10)
+        train_dataset = datasets.Curriculum(curriculum_root, 'train', limit=50)
+        dev_dataset = datasets.Curriculum(curriculum_root, 'dev', limit=10)
 
         viz_model = models.VQAConcept2ClassModel(len(train_dataset.concept_to_idx), len(train_dataset.cls_to_idx))
 
@@ -73,8 +73,8 @@ class SanityTest(unittest.TestCase):
         my_trainer.train(viz_model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=16)
 
     def __get_lesson1_datasets(self, prompt_mode='concept', target_mode='class'):
-        train_dataset = datasets.BasicCurriculum(curriculum_root, 'train', prompt_mode=prompt_mode, target_mode=target_mode, limit=50)
-        dev_dataset = datasets.BasicCurriculum(curriculum_root, 'dev', prompt_mode=prompt_mode, target_mode=target_mode, limit=10)
+        train_dataset = datasets.Curriculum(curriculum_root, 'train', prompt_mode=prompt_mode, target_mode=target_mode, limit=50)
+        dev_dataset = datasets.Curriculum(curriculum_root, 'dev', prompt_mode=prompt_mode, target_mode=target_mode, limit=10)
         return train_dataset, dev_dataset
 
     def test_promptop_training(self):

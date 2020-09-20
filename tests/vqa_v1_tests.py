@@ -40,10 +40,10 @@ class VQAV1Test(unittest.TestCase):
         self.assertEqual(list(img_embed.shape), [B, C_out, d], 'Wrong output dims of multi channel img model')
 
     def test_training(self):
-        train_dataset = datasets.BasicCurriculum(curriculum_root, 'train',
-                                                 prompt_mode='natural', target_mode='natural', limit=50)
-        dev_dataset = datasets.BasicCurriculum(curriculum_root, 'dev', vocab=train_dataset.vocab,
-                                               prompt_mode='natural', target_mode='natural', limit=10)
+        train_dataset = datasets.Curriculum(curriculum_root, 'train',
+                                            prompt_mode='natural', target_mode='natural', limit=50)
+        dev_dataset = datasets.Curriculum(curriculum_root, 'dev', vocab=train_dataset.vocab,
+                                          prompt_mode='natural', target_mode='natural', limit=10)
 
         np.random.seed(seed)
         torch.manual_seed(seed)

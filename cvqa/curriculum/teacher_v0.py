@@ -24,11 +24,30 @@ x = {
 #      'This is not a square', 'True.',
 #      'This is not a triangle', 'Wrong'
 #      ]
+SYNONYMS = {
+    'item': ['item', 'object', 'thing'],
+    'image': ['image', 'picture']
+}
+
+NEGATIONS = {
+    'Yes': 'No',
+    'Right': 'Wrong',
+    'True': 'False'
+}
 
 QUESTIONS = [
     ('shape', 'Which shape is this?', '[shape]'),
+    ('shape', 'This item is a...?', '[shape]'),
+    ('shape', 'The item in the image is a...?', '[shape]'),
+    ('shape_yes_no', 'Is the item in the image a [shape]?', 'Yes'),
+    ('shape_yes_no', 'This is a [shape].', 'True'),
+    ('shape_yes_no', 'This is not a [shape].', 'Wrong'),
     ('color', 'What is the color of this item?', '[color]'),
-    ('color', 'Is the item in the image a [shape]?', 'Yes'),
+    ('color', 'What color is this item?', '[color]'),
+    ('color', 'The color of this item is...?', '[color]'),
+    ('color_yes_no', 'Is the color of the item in the image [color]?', 'Yes'),
+    ('color_yes_no', 'This is a [color] item.', 'True'),
+    ('color_yes_no', 'This is a not a [color] item.', 'Wrong'),
 ]
 
 
