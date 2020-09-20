@@ -33,7 +33,7 @@ class CurriculumTest(unittest.TestCase):
         viz_rep = {'color': 'blue', 'location': [0.65, 0.44], 'shape': 'triangle', 'size': 0.29}
         p = "This is a not a [color] item."
         ans = 'Wrong'
-        s = vqa_dist.populate(p, ans, viz_rep)
+        s = vqa_dist.populate('c', p, ans, viz_rep)
         pp.pprint(s)
 
         # [{'answer': 'Right',

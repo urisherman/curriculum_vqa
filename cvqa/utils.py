@@ -23,3 +23,9 @@ def torch_zeros(*size, **kwargs):
     if IS_CUDA:
         t = t.cuda()
     return t
+
+
+def to_device(t):
+    if IS_CUDA:
+        t = t.cuda()
+    return t

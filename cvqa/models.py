@@ -98,38 +98,6 @@ class Resnet18PerceptionModel(nn.Module):
         return self.fc(torch.flatten(x, start_dim=-2))
 
 
-class VQAConcept2ClassModel(nn.Module):
-
-    def __init__(self, num_concepts, num_classes, img_perceptor=None):
-        super().__init__()
-        self.num_concepts = num_concepts
-        self.num_classes = num_classes
-
-        if img_perceptor is None:
-            img_perceptor = BasicImgModel(20)
-        self.img_perceptor = img_perceptor
-
-        self.prompt_reader_layer = nn.Linear(num_concepts, num_classes)
-
-        img_embedding = img_perceptor(torch.rand(1, 3, 224, 224))
-        B, d = img_embedding.shape
-        self.fc = nn.Linear(d, num_classes)
-
-    def read(self, prompt):
-        concept = prompt
-        one_hot_concept = torch.nn.functional.one_hot(concept, num_classes=self.num_concepts).to(device).float()
-        return one_hot_concept
-
-    def answer(self, prompt_embedding, img_embedding):
-        mask = self.prompt_reader_layer(prompt_embedding)
-        output = self.fc(torch.flatten(img_embedding, start_dim=1))
-        return output * mask
-
-    def forward(self, prompt, img):
-        prompt_embedding = self.read(prompt)
-        img_embedding = self.img_perceptor(img)
-        return self.answer(prompt_embedding, img_embedding)
-
 
 class BasicImgModel(nn.Module):
 
@@ -391,16 +359,35 @@ class VQAModelV1(nn.Module):
         prompt_encoder = build_fairseq_encoder(vocab, tokens_embeddings, d=d)
         vqa_decoder = build_fairseq_decoder(vocab, tokens_embeddings, d=d)
         img_perceptor = BasicImgModel(d, img_output_features)
-        return VQAModelV1(prompt_encoder, img_perceptor, vqa_decoder)
+        return VQAModelV1(prompt_encoder, img_perceptor, vqa_decoder, bos=vocab.bos_index, eos=vocab.eos_index)
 
-    def __init__(self, prompt_encoder, img_pereptor, vqa_decoder):
+    def __init__(self, prompt_encoder, img_pereptor, vqa_decoder, bos=0, eos=2):
         super().__init__()
         self.prompt_encoder = prompt_encoder
         self.img_pereptor = img_pereptor
         self.vqa_decoder = vqa_decoder
+        self.bos = bos
+        self.eos = eos
 
-    def forward(self, prompt_tokens, img, prev_output_tokens):
+    def forward(self, prompt_tokens, img, prev_output_tokens=None):
         prompt_embedding, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
         img_embedding = self.img_pereptor(img)
 
-        return self.vqa_decoder(prompt_embedding, prompt_pad_mask, img_embedding, prev_output_tokens)
+        B, N_in = prompt_tokens.shape
+        bos_tensor = torch.ones(B, 1, dtype=torch.int64).to(device) * self.bos
+        return self.vqa_decoder(prompt_embedding, prompt_pad_mask, img_embedding, bos_tensor)
+
+    def forward_predict(self, prompt_tokens, img, target_limit=5):
+        return self.forward(prompt_tokens, img)
+        # prompt_embedding, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
+        # img_embedding = self.img_pereptor(img)
+        #
+        # bos_tensor = torch.tensor([self.bos]).to(device)
+        # y_pred = torch.tensor([]).to(device)
+        # for i in range(target_limit):
+        #     prev_output_tokens = torch.cat([bos_tensor, y_pred])
+        #     y_pred = self.vqa_decoder(prompt_embedding, prompt_pad_mask, img_embedding, prev_output_tokens)
+        #     if y_pred[-1] == self.eos:
+        #         break
+        #
+        # return y_pred

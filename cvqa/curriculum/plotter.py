@@ -14,9 +14,11 @@ def draw(sample):
     ax.axis('off')
     return fig
 
+
 def draw_circle(sample, ax):
     circ = plt.Circle(sample['location'], sample['size'], color=sample['color'])
     ax.add_artist(circ)
+
 
 def draw_triangle(sample, ax):
     r = sample['size']

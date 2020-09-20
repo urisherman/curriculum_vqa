@@ -56,14 +56,32 @@ def plot_conf_mat(y_true, y_pred, labels):
     conf_mat = metrics.confusion_matrix(y_true, y_pred)
     conf_df = pd.DataFrame(conf_mat, index=labels, columns=labels)
 
-    x_ax_length = len(labels)*1.5
-    fig, ax = plt.subplots(figsize = (x_ax_length, x_ax_length-1.5))
+    x_ax_length = len(labels)*1.2
+    fig, ax = plt.subplots(figsize = (x_ax_length, x_ax_length-3))
     hm = sn.heatmap(conf_df, annot=True, annot_kws={'fontsize': 16}, fmt='g', ax=ax)
-    hm.set_xticklabels(hm.get_xmajorticklabels(), fontsize=14)
-    hm.set_yticklabels(hm.get_ymajorticklabels(), fontsize=14)
+    hm.set_xticklabels(hm.get_xmajorticklabels(), fontsize=12)
+    hm.set_yticklabels(hm.get_ymajorticklabels(), fontsize=12)
 
     ax.set_xlabel('Pred', fontsize=18)
     ax.set_ylabel('True', fontsize=18)
+
+
+def one_word_conf_mat(y_true, y_pred, vocab):
+    y_true_list = list(y_true.squeeze())
+    y_pred_list = list(y_pred.squeeze())
+
+    labels = set(y_true_list)
+    labels.update(y_pred_list)
+    labels = list(labels)
+    labels.sort()
+    label_to_idx = {l: i for i, l in enumerate(labels)}
+
+    y_true_cls = list(map(lambda x: label_to_idx[x], y_true_list))
+    y_pred_cls = list(map(lambda x: label_to_idx[x], y_pred_list))
+
+    str_labels = list(map(lambda l: vocab.string([l]), label_to_idx))
+
+    plot_conf_mat(y_true_cls, y_pred_cls, str_labels)
 
 
 def test_clf_sample(model, dataset, sample_idx=None):
@@ -108,15 +126,16 @@ def test_natural_sample(model, dataset, sample_idx=None):
 
     sample = utils.sample_to_cuda(sample)
 
-    if dataset.target_mode == 'natural':
-        logits = model(sample['prompt'], sample['img'], sample['target'])
+    if dataset.teacher_forcing:
+        logits = model.forward_predict(sample['prompt'], sample['img'])
     else:
-        logits = model(sample['prompt'], sample['img'])
+        logits = model(sample['prompt'], sample['img'], sample['target'])
 
     _, y_pred = torch.max(logits, -1)
     y_pred = y_pred.cpu().numpy()[0]
 
-    print(sample['text_prompt'])
+    print(f'Sample index: {sample_idx}')
+    print('Prompt: ' + sample['text_prompt'])
     print('Decoded encoded prompt: ' + dataset.vocab.string(sample['prompt']))
     print('True: ' + sample['text_target'])
     print('Pred: ' + dataset.vocab.string(y_pred))

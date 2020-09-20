@@ -41,9 +41,9 @@ class VQAV1Test(unittest.TestCase):
 
     def test_training(self):
         train_dataset = datasets.Curriculum(curriculum_root, 'train',
-                                            prompt_mode='natural', target_mode='natural', limit=50)
+                                            prompt_mode='natural', target_mode='natural', limit=20)
         dev_dataset = datasets.Curriculum(curriculum_root, 'dev', vocab=train_dataset.vocab,
-                                          prompt_mode='natural', target_mode='natural', limit=10)
+                                          prompt_mode='natural', target_mode='natural', limit=5)
 
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -52,4 +52,9 @@ class VQAV1Test(unittest.TestCase):
         model = models.VQAModelV1.build(train_dataset.vocab, d=16, img_output_features=7)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-        my_trainer.train(model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=5)
+        my_trainer.train(model, train_dataset, dev_dataset, optimizer, num_epochs=2, batch_size=6)
+
+        y_true, y_pred = my_trainer.get_predictions(model, dev_dataset)
+
+        print(y_true)
+        print(y_pred)

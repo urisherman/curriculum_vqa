@@ -48,6 +48,9 @@ class VQATrainer(object):
         if self.is_cuda:
             model.to(device)
 
+        train_dataset.teacher_forcing = True
+        dev_dataset.teacher_forcing = True
+
         training_generator = torch_utils.data.DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
         )
@@ -111,7 +114,7 @@ class VQATrainer(object):
         if self.sample_mode == 'natural':
             # logits.shape == [B, No, V]
             logits = logits.view(-1, logits.size(-1))  # [B*No, V]
-            targets = sample['target'].flatten()  # [B*No]
+            targets = targets.flatten()  # [B*No]
         # else:
         #     logits.shape == [B, L]
         #     targets.shape == [B]
@@ -186,6 +189,7 @@ class VQATrainer(object):
     def get_clf_predictions(self, model, dataset):
         res = utils.torch_zeros(len(dataset), 3, dtype=torch.int64)
         model.eval()
+        dataset.teacher_forcing = False
 
         dloader = torch.utils.data.DataLoader(
             datasets.WithIndicesDataset(dataset), shuffle=False, batch_size=64)
@@ -200,28 +204,35 @@ class VQATrainer(object):
                 res[s['index']] = torch.stack([s['index'], y_true, y_pred], dim=1)
         return res.cpu()
 
+    def get_predictions(self, model, dataset):
+        model.eval()
+        dataset.teacher_forcing = False
 
-# class VQATrainer(Trainer):
-#
-#     def __init__(self, ignore_index=None, log_dir=None):
-#         super().__init__(ignore_index, log_dir, log_graph=False)
-#
-#     def _model_input(self, sample):
-#         return sample['prompt'], sample['img'], sample['target']
-#
-#     def _model_fwd(self, model, sample):
-#         model_output = model(src_tokens=sample['prompt'], src_img=sample['img'], prev_output_tokens=sample['target'])
-#         #     model_output: (
-#         #         0: Tensor[B, No, V], --> real output, aka logits, the unnormalized scores over each token
-#         #         1: {
-#         #             attn: Tensor: [B, No, Ni],  --> cross attention
-#         #             inner_states: list[Tensor: [?, ?, d]]  --> looks like decoder internal layers
-#         #         }
-#         #     )
-#         logits = model_output[0]  # [B, No, V]
-#         logits = logits.view(-1, logits.size(-1))  # [B*No, V]
-#         targets = sample['target'].flatten()  # [B*No]
-#         return logits, targets
+        dloader = torch.utils.data.DataLoader(
+            datasets.WithIndicesDataset(dataset), shuffle=False, batch_size=64)
+
+        y_trues = torch.ones(len(dataset), dataset.N_target, dtype=torch.int64) * -1
+        y_preds = torch.ones(len(dataset), dataset.N_target, dtype=torch.int64) * -1
+        if utils.IS_CUDA:
+            y_trues = y_trues.cuda()
+            y_preds = y_preds.cuda()
+
+        with torch.set_grad_enabled(False):
+            for s in dloader:
+                s = utils.sample_to_cuda(s)
+
+                targets = s['target']
+                logits = model.forward_predict(s['prompt'], s['img'], target_limit=targets.shape[1])
+
+                B, N_out, V = logits.shape
+                flat_logits = logits.view(-1, logits.size(-1))  # [B*No, V]
+                _, y_pred = torch.max(flat_logits.data, -1)
+                y_pred = y_pred.reshape(B, N_out)
+
+                y_trues[s['index']] = targets
+                y_preds[s['index']] = y_pred
+
+        return y_trues.cpu().numpy(), y_preds.cpu().numpy()
 
 
 class ImageClassifierTrainer(VQATrainer):

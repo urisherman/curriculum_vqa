@@ -151,9 +151,11 @@ class BaseDataset(torch_utils.data.Dataset):
             self.N_prompt = 1
 
         if self.target_mode == 'natural':
-            self.N_target = max(map(lambda s: len(s['encoded_target']), new_samples))
+            self.N_target = 1  # max(map(lambda s: len(s['encoded_target']), new_samples))
         else:
             self.N_target = 1
+
+        self.teacher_forcing = True
 
     def __len__(self):
         return len(self.samples)
@@ -171,6 +173,16 @@ class BaseDataset(torch_utils.data.Dataset):
         if self.target_mode == 'natural':
             pad = self.N_target - len(target)
             target = F.pad(target, (0, pad), value=self.vocab.pad_index)
+            # if self.teacher_forcing:
+            #     bos = self.vocab.bos()
+            #     if target[0] != bos:
+            #         target = torch.cat([torch.LongTensor([bos]), target])
+            #
+            #     if target[-1] == self.vocab.eos():
+            #         target = target[:-1]
+
+            if target[-1] == self.vocab.eos():
+                target = target[:-1]
 
         img = tv.datasets.folder.default_loader(os.path.join(self.root_dir, sample['image_path']))
         img = self.img_transform(img)
@@ -179,7 +191,6 @@ class BaseDataset(torch_utils.data.Dataset):
             'prompt': prompt,
             'img': img,
             'target': target,
-            # 'sample_index': index
         }
 
     def __repr__(self):
@@ -193,7 +204,7 @@ class BaseDataset(torch_utils.data.Dataset):
 
 class Curriculum(BaseDataset):
 
-    def __init__(self, root, split='train', vocab=None, prompt_mode='concept', target_mode='class', limit=None, download=True):
+    def __init__(self, root, split='train', vocab=None, prompt_mode='natural', target_mode='natural', limit=None, download=True):
         root_dir = os.path.join(root, split)
         ds_file = os.path.join(root, split, f'dataset.json')
 
