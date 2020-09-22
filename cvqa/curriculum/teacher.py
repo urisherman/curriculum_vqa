@@ -23,8 +23,8 @@ if __name__ == '__main__':
     lesson = '1'
 
     root = lesson_root(lesson)
-    make_dataset(root, 'train', images=100, prompts_per_image=3)
-    make_dataset(root, 'dev', images=10, prompts_per_image=3)
+    make_dataset(root, 'train', images=500, prompts_per_image=10)
+    make_dataset(root, 'dev', images=50, prompts_per_image=10)
 
     shutil.make_archive(f'curriculum_{lesson}', 'zip', root_dir=root)
 

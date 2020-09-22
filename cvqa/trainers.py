@@ -79,26 +79,35 @@ class VQATrainer(object):
         dev_acc = []
 
         def eval_step(epoch):
-            cur_train_acc = self.evaluate(model, training_generator, iter_lim=100)
+            cur_train_acc = self.evaluate(model, training_generator, iter_lim=500)
             train_acc.append(cur_train_acc)
             cur_dev_acc = self.evaluate(model, dev_generator)
             dev_acc.append(cur_dev_acc)
             self.summary_writer.add_scalar('Accuracy/train', cur_train_acc, epoch)
             self.summary_writer.add_scalar('Accuracy/dev', cur_dev_acc, epoch)
 
-        for epoch in range(num_epochs):
-            eval_step(epoch)
-            with tqdm(training_generator) as prg_train:
-                for i, sample in enumerate(prg_train):
+        def train_step_and_log(epoch, i, sample, prg_train):
+            info = self.train_step(model, sample, optimizer, ce_crit)
 
-                    info = self.train_step(model, sample, optimizer, ce_crit)
+            train_loss.append(info['loss'])
+            self.summary_writer.add_scalar('Loss/train', info['loss'], epoch * len(training_generator) + i)
 
-                    train_loss.append(info['loss'])
-                    self.summary_writer.add_scalar('Loss/train', info['loss'], epoch * len(training_generator) + i)
+            running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
+            status_str = f'[epoch={epoch}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
+            prg_train.set_description(status_str)
 
-                    running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
-                    status_str = f'[epoch={epoch}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
-                    prg_train.set_description(status_str)
+        if num_epochs < 20:
+            for epoch in range(num_epochs):
+                eval_step(epoch)
+                with tqdm(training_generator) as prg_train:
+                    for i, sample in enumerate(prg_train):
+                        train_step_and_log(epoch, i, sample, prg_train)
+        else:
+            with tqdm(range(num_epochs)) as prg_train:
+                for epoch in prg_train:
+                    eval_step(epoch)
+                    for i, sample in enumerate(training_generator):
+                        train_step_and_log(epoch, i, sample, prg_train)
 
         eval_step(num_epochs)
 
@@ -130,14 +139,10 @@ class VQATrainer(object):
 
         logits, targets = self._model_fwd(model, sample)
 
-        loss = criterion(logits, targets.squeeze())
+        loss = criterion(logits, targets)
 
         loss.backward()
-        # sample_size = sample['ntokens']
-        # optimizer.multiply_grads(1. / float(sample_size))  # Needed?
         optimizer.step()
-        #     self.set_num_updates(self.get_num_updates() + 1)
-        # fairseq_utils.clear_cuda(self.args, 0)
 
         logging_output = {
             'loss': loss.data.item(),
@@ -222,7 +227,8 @@ class VQATrainer(object):
                 s = utils.sample_to_cuda(s)
 
                 targets = s['target']
-                logits = model.forward_predict(s['prompt'], s['img'], target_limit=targets.shape[1])
+                # TODO: Sort out how we do prediction without prev_output_tokens
+                logits = model.forward(*self._model_input(s))
 
                 B, N_out, V = logits.shape
                 flat_logits = logits.view(-1, logits.size(-1))  # [B*No, V]

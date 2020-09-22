@@ -1,3 +1,5 @@
+import pprint
+
 import numpy as np
 import matplotlib.pyplot as plt
 from textwrap import wrap
@@ -42,6 +44,11 @@ def imshow(inp, title=None, ax=None):
 def show_samples(dataset, k=4):
     fig, axs = plt.subplots(1, k, figsize=(16, 4))
 
+    flip_viz_rep = False
+    if dataset.use_viz_rep:
+        flip_viz_rep = True
+        dataset.use_viz_rep = False
+
     for i in range(k):
         idx = np.random.randint(0, len(dataset))
         sample = dataset[idx]
@@ -50,6 +57,9 @@ def show_samples(dataset, k=4):
         imshow(sample['img'],
                title=sample['text_prompt'] + ' "' + sample['text_target'] + '"',
                ax=axs[i])
+
+    if flip_viz_rep:
+        dataset.use_viz_rep = True
 
 
 def plot_conf_mat(y_true, y_pred, labels):
@@ -126,10 +136,10 @@ def test_natural_sample(model, dataset, sample_idx=None):
 
     sample = utils.sample_to_cuda(sample)
 
-    if dataset.teacher_forcing:
-        logits = model.forward_predict(sample['prompt'], sample['img'])
-    else:
-        logits = model(sample['prompt'], sample['img'], sample['target'])
+    # if dataset.teacher_forcing:
+    #     logits = model.forward_predict(sample['prompt'], sample['img'])
+    # else:
+    logits = model(sample['prompt'], sample['img'], None)
 
     _, y_pred = torch.max(logits, -1)
     y_pred = y_pred.cpu().numpy()[0]
@@ -139,4 +149,10 @@ def test_natural_sample(model, dataset, sample_idx=None):
     print('Decoded encoded prompt: ' + dataset.vocab.string(sample['prompt']))
     print('True: ' + sample['text_target'])
     print('Pred: ' + dataset.vocab.string(y_pred))
-    imshow(sample['img'][0].cpu())
+    if dataset.use_viz_rep:
+        # pp = pprint.PrettyPrinter(indent=4)
+        # pp.pprint(sample['img'][0].cpu())
+        print('* Encoded Structured Img Rep: ' + str(sample['img'][0].cpu()))
+        imshow(dataset.load_img(sample_idx).cpu())
+    else:
+        imshow(sample['img'][0].cpu())

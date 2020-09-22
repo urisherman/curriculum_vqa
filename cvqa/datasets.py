@@ -100,12 +100,16 @@ class BaseDataset(torch_utils.data.Dataset):
         is_build_vocab = vocab is None
         if is_build_vocab:
             vocab = Dictionary()
+        struct_viz_vocab = Dictionary()
 
         classes = LabelIndexer()
         concepts = LabelIndexer()
 
         new_samples = []
         for i, sample in enumerate(samples):
+            if limit is not None and i >= limit:
+                break
+
             if self.prompt_mode == 'natural':
                 sample['encoded_prompt'] = encode_line(sample['prompt'], vocab, add_if_not_exist=is_build_vocab)
             elif self.prompt_mode == 'concept' and 'concept' in sample:
@@ -120,10 +124,12 @@ class BaseDataset(torch_utils.data.Dataset):
             else:
                 raise ValueError(f'No such target_mode "{self.target_mode}"')
 
-            new_samples.append(sample)
+            if 'viz_rep' in sample:
+                viz_rep = sample['viz_rep']
+                viz_rep['encoded'] = encode_line(viz_rep['shape'] + ' ' + viz_rep['color'], struct_viz_vocab)
+                # viz_rep['encoded_shape'] = encode_line(viz_rep['shape'], struct_viz_vocab)
 
-            if limit is not None and i > limit:
-                break
+            new_samples.append(sample)
 
         # vocab.finalize()
 
@@ -145,6 +151,7 @@ class BaseDataset(torch_utils.data.Dataset):
         self.idx_to_concept = {v: k for k, v in concept_to_idx.items()}
 
         self.vocab = vocab
+        self.struct_viz_vocab = struct_viz_vocab
         if self.prompt_mode == 'natural':
             self.N_prompt = max(map(lambda s: len(s['encoded_prompt']), new_samples))
         else:
@@ -156,9 +163,15 @@ class BaseDataset(torch_utils.data.Dataset):
             self.N_target = 1
 
         self.teacher_forcing = True
+        self.use_viz_rep = False
 
     def __len__(self):
         return len(self.samples)
+
+    def load_img(self, index):
+        sample = self.samples[index]
+        img = tv.datasets.folder.default_loader(os.path.join(self.root_dir, sample['image_path']))
+        return self.img_transform(img)
 
     def __getitem__(self, index):
         sample = self.samples[index]
@@ -184,13 +197,19 @@ class BaseDataset(torch_utils.data.Dataset):
             if target[-1] == self.vocab.eos():
                 target = target[:-1]
 
-        img = tv.datasets.folder.default_loader(os.path.join(self.root_dir, sample['image_path']))
-        img = self.img_transform(img)
+        if not self.use_viz_rep:
+            img = tv.datasets.folder.default_loader(os.path.join(self.root_dir, sample['image_path']))
+            img = self.img_transform(img)
+        else:
+            encoded_viz = sample['viz_rep']['encoded']
+            if encoded_viz[-1] == self.struct_viz_vocab.eos():
+                encoded_viz = encoded_viz[:-1]
+            img = encoded_viz
 
         return {
             'prompt': prompt,
             'img': img,
-            'target': target,
+            'target': target
         }
 
     def __repr__(self):
@@ -204,7 +223,7 @@ class BaseDataset(torch_utils.data.Dataset):
 
 class Curriculum(BaseDataset):
 
-    def __init__(self, root, split='train', vocab=None, prompt_mode='natural', target_mode='natural', limit=None, download=True):
+    def __init__(self, root, split='train', vocab=None, prompt_mode='natural', target_mode='natural', limit=None):
         root_dir = os.path.join(root, split)
         ds_file = os.path.join(root, split, f'dataset.json')
 
@@ -218,6 +237,8 @@ class Curriculum(BaseDataset):
                 sample['prompt'] = sample['question']
             if 'answer' in sample:
                 sample['target'] = sample['answer']
+
+            # sample['prompt'] = sample['prompt'] + ' ans = ' + sample['target']
 
         img_transform = tv.transforms.Compose([
             tv.transforms.Resize(256),
@@ -255,12 +276,6 @@ class NLVR(BaseDataset):
 
         super().__init__(os.path.join(root, split), samples, img_transform,
                          vocab=vocab, prompt_mode='natural', target_mode=target_mode, limit=limit)
-
-
-
-
-
-
 
 
 # TODO: Sort this out - what is the proper way to encode and build the dictionary? Note - fairseq transformer expects int64 type token ids.

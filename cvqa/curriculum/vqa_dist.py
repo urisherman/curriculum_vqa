@@ -109,6 +109,24 @@ class VQAInstanceDistribution(object):
             ret.append(self.populate(concept, prompt, answer, viz_rep))
         return ret
 
+    def sample_dataset(self, images=10, prompts_per_image=5):
+        dataset = []
+        for i in range(images):
+            img = self.sample_viz_rep()
+            rel_img_path = f'images/img_{i}.png'
+
+            prompts = self.sample_prompt(img, n=prompts_per_image)
+            for p in prompts:
+                vqa_sample = {
+                    'viz_rep': img,
+                    'image_path': rel_img_path
+                }
+                vqa_sample.update(p)
+                dataset.append(vqa_sample)
+
+        random.shuffle(dataset)
+        return dataset
+
     def generate_dataset(self, root, images=10, prompts_per_image=5):
 
         images_root = os.path.join(root, 'images')
