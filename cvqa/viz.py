@@ -67,7 +67,7 @@ def plot_conf_mat(y_true, y_pred, labels):
     conf_df = pd.DataFrame(conf_mat, index=labels, columns=labels)
 
     x_ax_length = len(labels)*1.2
-    fig, ax = plt.subplots(figsize = (x_ax_length, x_ax_length-3))
+    fig, ax = plt.subplots(figsize = (x_ax_length, x_ax_length*.8))
     hm = sn.heatmap(conf_df, annot=True, annot_kws={'fontsize': 16}, fmt='g', ax=ax)
     hm.set_xticklabels(hm.get_xmajorticklabels(), fontsize=12)
     hm.set_yticklabels(hm.get_ymajorticklabels(), fontsize=12)

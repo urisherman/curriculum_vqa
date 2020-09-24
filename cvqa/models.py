@@ -72,10 +72,10 @@ class StructuredImageModel(nn.Module):
 
 class BasicImgModel(nn.Module):
 
-    def __init__(self, output_dim, output_channels=None):
+    def __init__(self, output_dim, output_channels=None, pretrained=True):
         super().__init__()
 
-        self.backbone = tv.models.resnet18(pretrained=True)
+        self.backbone = tv.models.resnet18(pretrained=pretrained)
         backbone_output = self.__backbone_forward(torch.rand(1, 3, 224, 224))
         B, C, H, W = backbone_output.shape
 

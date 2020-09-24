@@ -25,7 +25,7 @@ else:
 
 class VQATrainer(object):
 
-    def __init__(self, ignore_index=None, log_dir=None, log_graph=False, sample_mode='natural'):
+    def __init__(self, log_dir=None, ignore_index=None, sample_mode='natural', progressbar='auto'):
         self.ignore_index = ignore_index
 
         self.is_cuda = False
@@ -33,17 +33,16 @@ class VQATrainer(object):
             self.is_cuda = True
 
         self.log_dir = log_dir
-        self.log_graph = log_graph
         self.summary_writer = None
         self.sample_mode = sample_mode
+        self.progressbar = progressbar
 
-    def train(self, model, train_dataset, dev_dataset, optimizer, num_epochs=10, batch_size=32):
+    def train(self, model, train_dataset, dev_dataset, optimizer, optim_sched=None, num_epochs=10, batch_size=32):
         log_dir = self.log_dir
         if log_dir is not None:
             current_time = datetime.now().strftime('%b%d_%H-%M-%S')
             log_dir = os.path.join(self.log_dir, f'run-{current_time}')
-
-        self.summary_writer = SummaryWriter(log_dir)
+            self.summary_writer = SummaryWriter(log_dir)
 
         if self.is_cuda:
             model.to(device)
@@ -59,7 +58,7 @@ class VQATrainer(object):
             dev_dataset, batch_size=batch_size, shuffle=True
         )
 
-        if self.log_graph:
+        if self.summary_writer and False:
             try:
                 sample = next(iter(training_generator))
                 sample = self.prep_sample(sample)
@@ -83,26 +82,37 @@ class VQATrainer(object):
             train_acc.append(cur_train_acc)
             cur_dev_acc = self.evaluate(model, dev_generator)
             dev_acc.append(cur_dev_acc)
-            self.summary_writer.add_scalar('Accuracy/train', cur_train_acc, epoch)
-            self.summary_writer.add_scalar('Accuracy/dev', cur_dev_acc, epoch)
+            if self.summary_writer:
+                self.summary_writer.add_scalar('Accuracy/train', cur_train_acc, epoch)
+                self.summary_writer.add_scalar('Accuracy/dev', cur_dev_acc, epoch)
 
-        def train_step_and_log(epoch, i, sample, prg_train):
+        def train_step_and_log(epoch, i, sample, prg_train=None):
             info = self.train_step(model, sample, optimizer, ce_crit)
+            if optim_sched is not None:
+                optim_sched.step()
 
             train_loss.append(info['loss'])
-            self.summary_writer.add_scalar('Loss/train', info['loss'], epoch * len(training_generator) + i)
+            if self.summary_writer:
+                self.summary_writer.add_scalar('Loss/train', info['loss'], epoch * len(training_generator) + i)
 
-            running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
-            status_str = f'[epoch={epoch}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
-            prg_train.set_description(status_str)
+            if prg_train is not None:
+                running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
+                steps = epoch*batch_size + i
+                status_str = f'[epoch={epoch}, steps={steps}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
+                prg_train.set_description(status_str)
 
-        if num_epochs < 20:
+        if self.progressbar == 'none':
+            for epoch in range(num_epochs):
+                eval_step(epoch)
+                for i, sample in enumerate(training_generator):
+                    train_step_and_log(epoch, i, sample)
+        elif self.progressbar == 'steps' or (self.progressbar == 'auto' and num_epochs < 20):
             for epoch in range(num_epochs):
                 eval_step(epoch)
                 with tqdm(training_generator) as prg_train:
                     for i, sample in enumerate(prg_train):
                         train_step_and_log(epoch, i, sample, prg_train)
-        else:
+        else:  # self.progressbar == 'epochs'
             with tqdm(range(num_epochs)) as prg_train:
                 for epoch in prg_train:
                     eval_step(epoch)

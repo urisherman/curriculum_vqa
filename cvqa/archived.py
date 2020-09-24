@@ -82,3 +82,96 @@
 # np.einsum('bp,bpc->bc', img_feat, p_ops)
 # np.einsum('bpc,bp->bc', p_ops[[0]], img_feat[[0]])
 # torch.einsum('pdc,bd->bpc', viz_model.W_op, prompt_encoded)
+
+
+
+#### upload to google and unzip from stream ###
+# from google.colab import files
+# uploaded = files.upload()
+# import shutil
+# import zipfile
+# from io import BytesIO
+#
+# zipdata = BytesIO(uploaded[f'{curriculum_name}.zip'])
+#
+# with zipfile.ZipFile(zipdata, 'r') as zip_ref:
+#     zip_ref.extractall(curriculum_root)
+
+
+# class NoamOpt:
+#     "Optim wrapper that implements rate."
+#
+#     def __init__(self, model_size, factor, warmup, optimizer):
+#         self.optimizer = optimizer
+#         self._step = 0
+#         self.warmup = warmup
+#         self.factor = factor
+#         self.model_size = model_size
+#         self._rate = 0
+#
+#     def step(self):
+#         "Update parameters and rate"
+#         self._step += 1
+#         rate = self.rate()
+#         for p in self.optimizer.param_groups:
+#             p['lr'] = rate
+#         self._rate = rate
+#         self.optimizer.step()
+#
+#     def zero_grad(self):
+#         self.optimizer.zero_grad()
+#
+#     def rate(self, step=None):
+#         "Implement `lrate` above"
+#         if step is None:
+#             step = self._step
+#         return self.factor * \
+#                (self.model_size ** (-0.5) *
+#                 min(step ** (-0.5), step * self.warmup ** (-1.5)))
+#
+#
+# class UriOpt:
+#     "Optim wrapper that implements rate."
+#
+#     def __init__(self, decay_steps_interval, factor, optimizer, clif=100):
+#         self.optimizer = optimizer
+#         self._step = 0
+#         self.factor = factor
+#         self.decay_steps_interval = decay_steps_interval
+#         self._rate = 0
+#         self.lr = next(iter(optimizer.param_groups))['lr']
+#         self.clif = clif
+#
+#     def step(self):
+#         "Update parameters and rate"
+#         self._step += 1
+#         rate = self.rate()
+#         for p in self.optimizer.param_groups:
+#             p['lr'] = rate
+#         self._rate = rate
+#         self.optimizer.step()
+#
+#     def zero_grad(self):
+#         self.optimizer.zero_grad()
+#
+#     def rate(self, step=None):
+#         "Implement `lrate` above"
+#         if step is None:
+#             step = self._step
+#         if step < self.clif:
+#             return self.lr
+#         else:
+#             factor_steps = (step - self.clif) / self.decay_steps_interval
+#             return self.lr * self.factor ** (-factor_steps)
+
+# import matplotlib.pyplot as plt
+#
+# optimizer = UriOpt(63, 2,
+#             torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9))
+#
+# lrs = []
+# for i in range(600):
+#   lrs.append(optimizer.rate(i+1))
+#
+# plt.plot(lrs);
+# lrs[-1]
