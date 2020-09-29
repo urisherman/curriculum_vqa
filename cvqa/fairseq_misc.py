@@ -216,8 +216,9 @@ class VQATransformerEncoder(FairseqEncoder):
 
         x, encoder_embedding = self.forward_embedding(src_tokens)
 
-        comodal_embedding = torch.cat([x, img_embedding], dim=1)
-        x = comodal_embedding
+        if img_embedding is not None:
+            comodal_embedding = torch.cat([x, img_embedding], dim=1)
+            x = comodal_embedding
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -226,7 +227,7 @@ class VQATransformerEncoder(FairseqEncoder):
         encoder_padding_mask = src_tokens.eq(self.padding_idx)
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
-        else:
+        elif img_embedding is not None:
             B, F_img, d = img_embedding.shape
             img_pad_mask = torch.zeros(B, F_img).to(device) == 1
             comodal_pad_mask = torch.cat([encoder_padding_mask, img_pad_mask], dim=1)

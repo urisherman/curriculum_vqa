@@ -166,6 +166,101 @@ class VQAPromptOpModel(nn.Module):
         return logits
 
 
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoderLayer, TransformerDecoder
+
+
+class VQAModelV11(nn.Module):
+
+    @staticmethod
+    def build(vocab,
+              img_perceptor,
+              d_model=16,
+              encoder_ffn_dim=32,
+              encoder_layers=2,
+              encoder_attention_heads=2,
+              encoder_dropout=0,
+              decoder_ffn_dim=32,
+              decoder_layers=2,
+              decoder_attention_heads=2,
+              decoder_dropout=0):
+        encoder_layer = TransformerEncoderLayer(d_model, encoder_attention_heads, encoder_ffn_dim, encoder_dropout)
+        transformer_encoder = TransformerEncoder(encoder_layer, encoder_layers)
+
+        decoder_layer = TransformerDecoderLayer(d_model, decoder_attention_heads, decoder_ffn_dim, decoder_dropout)
+        transformer_decoder = TransformerDecoder(decoder_layer, decoder_layers)
+        return VQAModelV11(transformer_encoder, img_perceptor, transformer_decoder, vocab, d_model)
+
+    def __init__(self, transformer_encoder, img_perceptor, transformer_decoder, vocab, d_model, pos_dropout=.1):
+        super(VQAModelV11, self).__init__()
+        # self.model_type = 'Transformer'
+        # self.src_mask = None
+        #
+        self.img_perceptor = img_perceptor
+        self.vocab = vocab
+        V = len(vocab)
+        tokens_embedding = Embedding(V, d_model, vocab.pad())
+        self.tokens_embedding = tokens_embedding
+
+        self.pos_encoder = PositionalEncoding(d_model, pos_dropout)
+        self.transformer_encoder = transformer_encoder
+        self.transformer_decoder = transformer_decoder
+
+        self.d_model = d_model
+
+    def forward(self, prompt, img, prev_tokens=None):
+        prompt_embed = self.tokens_embedding(prompt) * math.sqrt(self.d_model)
+        prompt_embed = self.pos_encoder(prompt_embed)
+        x = prompt_embed
+
+        img_embed = None
+        if img is not None and self.img_perceptor is not None:
+            img_embed = self.img_perceptor(img)
+            comodal_embed = torch.cat([x, img_embed], dim=1)
+            x = comodal_embed
+
+        # compute padding mask
+        encoder_padding_mask = prompt.eq(self.vocab.pad_index)
+        if not encoder_padding_mask.any():
+            encoder_padding_mask = None
+        elif img_embed is not None:
+            B, F_img, d = img_embed.shape
+            img_pad_mask = torch.zeros(B, F_img).to(device) == 1
+            comodal_pad_mask = torch.cat([encoder_padding_mask, img_pad_mask], dim=1)
+            encoder_padding_mask = comodal_pad_mask
+
+        x = x.transpose(0, 1)
+        encoder_output = self.transformer_encoder(x, src_key_padding_mask=encoder_padding_mask)
+        # encoder_output shape = [N_in, B, d]
+
+        B, N_in = prompt.shape
+        bos_tensor = torch.ones(B, 1, dtype=torch.int64).to(device) * self.vocab.bos_index
+        bos_tensor = self.tokens_embedding(bos_tensor).transpose(0, 1)
+        decoder_output = self.transformer_decoder(bos_tensor, encoder_output, memory_key_padding_mask=encoder_padding_mask)
+        decoder_output = decoder_output.transpose(0, 1)
+
+        logits = F.linear(decoder_output, self.tokens_embedding.weight)
+        return logits
+
+
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
+
 def build_embeddings(d, dataset, c=None):
     if dataset.prompt_mode == 'natural' and dataset.target_mode == 'natural':
         prompt_embeddings = Embedding(len(dataset.vocab), d, padding_idx=dataset.vocab.pad_index)
@@ -197,7 +292,8 @@ def build_embeddings(d, dataset, c=None):
 def Embedding(num_embeddings, embedding_dim, padding_idx=None):
     m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
     nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+    # nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
     if padding_idx is not None:
-        # nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
         nn.init.constant_(m.weight[padding_idx], 0)
     return m
+

@@ -124,7 +124,7 @@ class VQATrainer(object):
         return train_loss, train_acc, dev_acc
 
     def _model_input(self, sample):
-        return sample['prompt'], sample['img'], sample['target']
+        return sample['prompt'], sample.get('img')  # , sample['target']
 
     def _model_fwd(self, model, sample):
         logits = model(*self._model_input(sample))
@@ -262,3 +262,5 @@ class ImageClassifierTrainer(VQATrainer):
     def _model_fwd(self, model, sample):
         model_output = model(*self._model_input(sample))
         return model_output, sample['target']
+
+

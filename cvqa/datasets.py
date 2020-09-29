@@ -278,6 +278,41 @@ class NLVR(BaseDataset):
                          vocab=vocab, prompt_mode='natural', target_mode=target_mode, limit=limit)
 
 
+class SimpleDataset(torch.utils.data.Dataset):
+    def __init__(self, samples):
+        vocab = Dictionary()
+        self.vocab = vocab
+        self.samples = samples
+        for s in samples:
+            s['encoded_prompt'] = encode_line(s['prompt'], vocab)
+            s['encoded_target'] = encode_line(s['target'], vocab)
+
+        self.N_prompt = max(map(lambda s: len(s['encoded_prompt']), samples))
+        self.N_target = 1
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        sample = self.samples[index]
+
+        prompt = sample['encoded_prompt']
+        target = sample['encoded_target']
+
+        pad = self.N_prompt - len(prompt)
+        prompt = F.pad(prompt, (0, pad), value=self.vocab.pad_index)
+
+        pad = self.N_target - len(target)
+        target = F.pad(target, (0, pad), value=self.vocab.pad_index)
+        if target[-1] == self.vocab.eos():
+            target = target[:-1]
+
+        return {
+            'prompt': prompt,
+            'target': target
+        }
+
+
 # TODO: Sort this out - what is the proper way to encode and build the dictionary? Note - fairseq transformer expects int64 type token ids.
 def encode_line(line, vocab, add_if_not_exist=True, consumer=None, append_eos=True, reverse_order=False):
     """
