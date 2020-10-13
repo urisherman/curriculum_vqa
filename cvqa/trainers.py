@@ -77,7 +77,7 @@ class VQATrainer(object):
         train_acc = []
         dev_acc = []
 
-        def eval_step(epoch):
+        def eval_epoch(epoch):
             cur_train_acc = self.evaluate(model, training_generator, iter_lim=500)
             train_acc.append(cur_train_acc)
             cur_dev_acc = self.evaluate(model, dev_generator)
@@ -101,25 +101,30 @@ class VQATrainer(object):
                 status_str = f'[epoch={epoch}, steps={steps}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
                 prg_train.set_description(status_str)
 
+        def train_epoch(train_data, epoch, prg_train=None):
+            for i, sample in enumerate(train_data):
+                train_step_and_log(epoch, i, sample, prg_train)
+
+            if self.summary_writer is not None:
+                for tag, parm in model.named_parameters():
+                    self.summary_writer.add_histogram(tag, parm.grad.data.cpu().numpy(), epoch)
+
         if self.progressbar == 'none':
             for epoch in range(num_epochs):
-                eval_step(epoch)
-                for i, sample in enumerate(training_generator):
-                    train_step_and_log(epoch, i, sample)
+                eval_epoch(epoch)
+                train_epoch(training_generator, epoch)
         elif self.progressbar == 'steps' or (self.progressbar == 'auto' and num_epochs < 20):
             for epoch in range(num_epochs):
-                eval_step(epoch)
+                eval_epoch(epoch)
                 with tqdm(training_generator) as prg_train:
-                    for i, sample in enumerate(prg_train):
-                        train_step_and_log(epoch, i, sample, prg_train)
+                    train_epoch(prg_train, epoch, prg_train)
         else:  # self.progressbar == 'epochs'
             with tqdm(range(num_epochs)) as prg_train:
                 for epoch in prg_train:
-                    eval_step(epoch)
-                    for i, sample in enumerate(training_generator):
-                        train_step_and_log(epoch, i, sample, prg_train)
+                    eval_epoch(epoch)
+                    train_epoch(training_generator, epoch, prg_train)
 
-        eval_step(num_epochs)
+        eval_epoch(num_epochs)
 
         return train_loss, train_acc, dev_acc
 

@@ -121,6 +121,11 @@ def test_natural_sample(model, dataset, sample_idx=None):
     if sample_idx is None:
         sample_idx = np.random.randint(len(dataset))
 
+    flip_debug_mode = False
+    if dataset.debug_mode:
+        flip_debug_mode = True
+        dataset.debug_mode = False
+
     sample = dataset[sample_idx]
     sample['text_prompt'] = dataset.samples[sample_idx]['prompt']
     sample['text_target'] = dataset.samples[sample_idx]['target']
@@ -130,7 +135,11 @@ def test_natural_sample(model, dataset, sample_idx=None):
     if type(sample['target']) == int:
         sample['target'] = torch.tensor([sample['target']])
 
-    sample['img'] = sample['img'].unsqueeze(0)
+    if type(sample['img']) == dict:
+        sample['img'] = {k: sample['img'][k].unsqueeze(0) for k in sample['img']}
+    else:
+        sample['img'] = sample['img'].unsqueeze(0)
+
     sample['prompt'] = sample['prompt'].unsqueeze(0)
     sample['target'] = sample['target'].unsqueeze(0)
 
@@ -139,7 +148,7 @@ def test_natural_sample(model, dataset, sample_idx=None):
     # if dataset.teacher_forcing:
     #     logits = model.forward_predict(sample['prompt'], sample['img'])
     # else:
-    logits = model(sample['prompt'], sample['img'], None)
+    logits = model(sample['prompt'], sample['img'])
 
     _, y_pred = torch.max(logits, -1)
     y_pred = y_pred.cpu().numpy()[0]
@@ -148,11 +157,14 @@ def test_natural_sample(model, dataset, sample_idx=None):
     print('Prompt: ' + sample['text_prompt'])
     print('Decoded encoded prompt: ' + dataset.vocab.string(sample['prompt']))
     print('True: ' + sample['text_target'])
-    print('Pred: ' + dataset.vocab.string(y_pred))
+    print('Pred: ' + dataset.ans_vocab.string(y_pred))
     if dataset.use_viz_rep:
         # pp = pprint.PrettyPrinter(indent=4)
         # pp.pprint(sample['img'][0].cpu())
-        print('* Encoded Structured Img Rep: ' + str(sample['img'][0].cpu()))
+        # print('* Encoded Structured Img Rep: ' + str(sample['img'][0].cpu()))
         imshow(dataset.load_img(sample_idx).cpu())
     else:
         imshow(sample['img'][0].cpu())
+
+    if flip_debug_mode:
+        dataset.debug_mode = True

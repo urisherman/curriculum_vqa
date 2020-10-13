@@ -76,7 +76,7 @@ class BaseDataset(torch_utils.data.Dataset):
         """
         pass
 
-    def __init__(self, root_dir, samples, img_transform, vocab=None, prompt_mode='concept', target_mode='class', limit=None):
+    def __init__(self, root_dir, samples, img_transform, vocabs_from=None, prompt_mode='natural', target_mode='natural', limit=None):
         """
         samples should be
         :param root_dir:
@@ -97,10 +97,15 @@ class BaseDataset(torch_utils.data.Dataset):
         self.target_mode = target_mode
         self.img_transform = img_transform
 
-        is_build_vocab = vocab is None
+        is_build_vocab = vocabs_from is None
         if is_build_vocab:
             vocab = Dictionary()
-        struct_viz_vocab = Dictionary()
+            ans_vocab = Dictionary()
+            struct_viz_vocab = Dictionary()
+        else:
+            vocab = vocabs_from.vocab
+            ans_vocab = vocabs_from.ans_vocab
+            struct_viz_vocab = vocabs_from.struct_viz_vocab
 
         classes = LabelIndexer()
         concepts = LabelIndexer()
@@ -118,7 +123,7 @@ class BaseDataset(torch_utils.data.Dataset):
                 raise ValueError(f'No such prompt_mode "{self.prompt_mode}"')
 
             if self.target_mode == 'natural':
-                sample['encoded_target'] = encode_line(sample['target'], vocab, add_if_not_exist=is_build_vocab)
+                sample['encoded_target'] = encode_line(sample['target'], ans_vocab, add_if_not_exist=is_build_vocab)
             elif self.target_mode == 'class':
                 classes.add(sample['target'])
             else:
@@ -151,6 +156,7 @@ class BaseDataset(torch_utils.data.Dataset):
         self.idx_to_concept = {v: k for k, v in concept_to_idx.items()}
 
         self.vocab = vocab
+        self.ans_vocab = ans_vocab
         self.struct_viz_vocab = struct_viz_vocab
         if self.prompt_mode == 'natural':
             self.N_prompt = max(map(lambda s: len(s['encoded_prompt']), new_samples))
@@ -164,6 +170,7 @@ class BaseDataset(torch_utils.data.Dataset):
 
         self.teacher_forcing = True
         self.use_viz_rep = False
+        self.debug_mode = False
 
     def __len__(self):
         return len(self.samples)
@@ -204,13 +211,24 @@ class BaseDataset(torch_utils.data.Dataset):
             encoded_viz = sample['viz_rep']['encoded']
             if encoded_viz[-1] == self.struct_viz_vocab.eos():
                 encoded_viz = encoded_viz[:-1]
-            img = encoded_viz
 
-        return {
+            loc_and_size = torch.tensor(sample['viz_rep']['location'] + [sample['viz_rep']['size']], dtype=torch.float32)
+            img = {
+                'tokens': encoded_viz,
+                'locsize': loc_and_size
+            }
+
+        ret = {
             'prompt': prompt,
             'img': img,
             'target': target
         }
+        if self.debug_mode:
+            ret['prompt_text'] = sample['prompt']
+            ret['target_text'] = sample['target']
+            ret['struct_rep'] = sample['viz_rep']
+
+        return ret
 
     def __repr__(self):
         S = len(self.samples)
@@ -223,7 +241,20 @@ class BaseDataset(torch_utils.data.Dataset):
 
 class Curriculum(BaseDataset):
 
-    def __init__(self, root, split='train', vocab=None, prompt_mode='natural', target_mode='natural', limit=None):
+    @staticmethod
+    def load_train_dev(root, struct_viz=True):
+        train_dataset = Curriculum(root, 'train')
+        vocab = train_dataset.vocab
+        ans_vocab = train_dataset.ans_vocab
+        dev_dataset = Curriculum(root, 'dev', vocabs_from=train_dataset)
+
+        if struct_viz:
+            train_dataset.use_viz_rep = True
+            dev_dataset.use_viz_rep = True
+
+        return train_dataset, dev_dataset
+
+    def __init__(self, root, split='train', vocabs_from=None, prompt_mode='natural', target_mode='natural', limit=None):
         root_dir = os.path.join(root, split)
         ds_file = os.path.join(root, split, f'dataset.json')
 
@@ -246,7 +277,8 @@ class Curriculum(BaseDataset):
             tv.transforms.ToTensor(),
             tv.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
-        super().__init__(root_dir, samples, img_transform, vocab=vocab, prompt_mode=prompt_mode, target_mode=target_mode, limit=limit)
+        super().__init__(root_dir, samples, img_transform, vocabs_from=vocabs_from,
+                         prompt_mode=prompt_mode, target_mode=target_mode, limit=limit)
 
 
 class NLVR(BaseDataset):

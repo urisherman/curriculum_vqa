@@ -175,3 +175,75 @@
 #
 # plt.plot(lrs);
 # lrs[-1]
+
+
+
+
+###
+### Fairseq model running in colab
+###
+# seed = 1
+# np.random.seed(seed)
+# torch.manual_seed(seed)
+#
+# vocab = train_dataset.vocab
+#
+# struct_viz = True
+#
+# d=16
+# img_output_features=3
+#
+# tokens_embed = fairseq_misc.build_embedding(vocab, d)
+# encoder = fairseq_misc.build_vqa_encoder(
+#     vocab, tokens_embed,
+#     ffn_dim=d*2,
+#     layers=2,
+#     attention_heads = 2
+# )
+# decoder = fairseq_misc.build_decoder(
+#     vocab, tokens_embed,
+#     ffn_dim=d*2,
+#     layers=2,
+#     attention_heads=2
+# )
+#
+# if struct_viz:
+#   img_perceptor = models.StructuredImageModel(
+#       train_dataset.struct_viz_vocab, d, img_output_features)
+# else:
+#   img_perceptor = models.BasicImgModel(d, img_output_features)
+#
+# train_dataset.use_viz_rep = struct_viz
+# dev_dataset.use_viz_rep = struct_viz
+#
+# model = models.VQAModelV1(encoder, img_perceptor, decoder, bos=vocab.bos_index)
+#
+# optimizer = torch.optim.Adam(model.parameters(), lr=3e-3)
+# # optimizer = UriOpt(1200, 150, 1.3, optimizer)
+#
+# trainer = trainers.VQATrainer(log_dir='runs/basic')
+# train_loss, train_acc, dev_acc = trainer.train(
+#     model, train_dataset, dev_dataset,
+#     optimizer, num_epochs=100, batch_size=32
+# )
+
+
+
+
+
+# self.prompts = [
+#             ('shape', 'Which shape is this?', '[shape]'),
+#             ('shape', 'This item is a...?', '[shape]'),
+#             ('shape', 'The item in the image is a...?', '[shape]'),
+#             ('shape', 'The shape of the item in the image is a...?', '[shape]'),
+#             ('shape_yes_no', 'Is the item in the image a [shape]?', 'Yes'),
+#             ('shape_yes_no', 'This is a [shape].', 'True'),
+#             ('shape_yes_no', 'This is not a [shape].', 'Wrong'),
+#             ('color', 'What is the color of this item?', '[color]'),
+#             ('color', 'What color is this item?', '[color]'),
+#             ('color', 'The color of this item is...?', '[color]'),
+#             ('color', 'The color of the item in the image is...?', '[color]'),
+#             ('color_yes_no', 'Is the color of the item in the image [color]?', 'Yes'),
+#             ('color_yes_no', 'This is a [color] item.', 'True'),
+#             ('color_yes_no', 'This is a not a [color] item.', 'Wrong'),
+#         ]
