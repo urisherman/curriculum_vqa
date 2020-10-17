@@ -37,7 +37,7 @@ class VQATrainer(object):
         self.sample_mode = sample_mode
         self.progressbar = progressbar
 
-    def train(self, model, train_dataset, dev_dataset, optimizer, optim_sched=None, num_epochs=10, batch_size=32):
+    def train(self, model, train_dataset, dev_dataset, optimizer, optim_sched=None, traintracker=None, num_epochs=10, batch_size=32):
         log_dir = self.log_dir
         if log_dir is not None:
             current_time = datetime.now().strftime('%b%d_%H-%M-%S')
@@ -85,8 +85,14 @@ class VQATrainer(object):
             if self.summary_writer:
                 self.summary_writer.add_scalar('Accuracy/train', cur_train_acc, epoch)
                 self.summary_writer.add_scalar('Accuracy/dev', cur_dev_acc, epoch)
+            if traintracker:
+                traintracker.start('epoch')
+                traintracker.log_metric('train_acc', cur_train_acc)
+                traintracker.log_metric('dev_acc', cur_dev_acc)
 
         def train_step_and_log(epoch, i, sample, prg_train=None):
+            if traintracker:
+                traintracker.start('train_step')
             info = self.train_step(model, sample, optimizer, ce_crit)
             if optim_sched is not None:
                 optim_sched.step()
@@ -94,6 +100,8 @@ class VQATrainer(object):
             train_loss.append(info['loss'])
             if self.summary_writer:
                 self.summary_writer.add_scalar('Loss/train', info['loss'], epoch * len(training_generator) + i)
+            if traintracker:
+                traintracker.log_metric('loss', info['loss'])
 
             if prg_train is not None:
                 running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
@@ -107,6 +115,8 @@ class VQATrainer(object):
 
             if self.summary_writer is not None:
                 for tag, parm in model.named_parameters():
+                    if parm.grad is None:
+                        warnings.warn(f'model parameter {tag} has no gradients')
                     self.summary_writer.add_histogram(tag, parm.grad.data.cpu().numpy(), epoch)
 
         if self.progressbar == 'none':
@@ -126,10 +136,15 @@ class VQATrainer(object):
 
         eval_epoch(num_epochs)
 
+        if traintracker:
+            traintracker.plot('loss', 'train_step')
+            traintracker.plot('train_acc', 'epoch')
+            traintracker.plot('dev_acc', 'epoch')
+
         return train_loss, train_acc, dev_acc
 
     def _model_input(self, sample):
-        return sample['prompt'], sample.get('img')  # , sample['target']
+        return sample['prompt'], sample.get('img'), sample['target_attention_mask']  # , sample['target']
 
     def _model_fwd(self, model, sample):
         logits = model(*self._model_input(sample))
@@ -242,7 +257,6 @@ class VQATrainer(object):
                 s = utils.sample_to_cuda(s)
 
                 targets = s['target']
-                # TODO: Sort out how we do prediction without prev_output_tokens
                 logits = model.forward(*self._model_input(s))
 
                 B, N_out, V = logits.shape

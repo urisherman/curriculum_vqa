@@ -4,15 +4,23 @@ import matplotlib.pyplot as plt
 
 def draw(sample):
     fig, ax = plt.subplots(figsize=(5, 5))
-    {
-        'circle': draw_circle,
-        'triangle': draw_triangle
-    }[sample['shape']](sample, ax)
+    for o in sample['objects']:
+        draw_object(o, ax)
 
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis('off')
     return fig
+
+
+def draw_object(obj, ax):
+    draw_fn = {
+        'circle': draw_circle,
+        'triangle': draw_triangle
+    }.get(obj['shape'], None)
+
+    if draw_fn is not None:
+        draw_fn(obj, ax)
 
 
 def draw_circle(sample, ax):
@@ -37,6 +45,6 @@ def draw_triangle(sample, ax):
     x[2] = center[0]
     y[2] = center[1] + r
 
-    ax.scatter(x, y, s=0, color=sample['color'])
+    ax.scatter(x, y, s=0, color=sample['color'], alpha=.6)
     t1 = plt.Polygon(np.hstack([x[:, None], y[:, None]]), color=sample['color'])
     ax.add_patch(t1)

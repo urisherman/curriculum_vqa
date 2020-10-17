@@ -247,3 +247,35 @@
 #             ('color_yes_no', 'This is a [color] item.', 'True'),
 #             ('color_yes_no', 'This is a not a [color] item.', 'Wrong'),
 #         ]
+
+#
+# if 'viz_rep' in sample:
+#     viz_rep = sample['viz_rep']
+#     # viz_rep['encoded'] = encode_line(viz_rep['shape'] + ' ' + viz_rep['color'], struct_viz_vocab)
+#     for o in viz_rep['objects']:
+#         o['encoded_tokens'] = encode_line(o['tokens'], struct_viz_vocab)
+#
+# new_samples.append(sample)
+#
+# ### Make structured image representation proper
+# if 'viz_rep' in new_samples[0]:
+#     N_objs_max = max(map(lambda s: len(s['viz_rep']['objects']), new_samples))
+#     for i, sample in enumerate(new_samples):
+#         viz_rep = sample['viz_rep']
+#
+#         obj_tokens = list(map(lambda ob: ob['encoded_tokens'], viz_rep['objects']))
+#         toekns_img = torch.stack(obj_tokens)  # [N_objs, N_tokens]
+#
+#         obj_numerics = list(map(lambda ob: ob['numerics'], viz_rep['objects']))
+#         numerics_img = torch.stack(obj_numerics)  # [N_objs, N_numerics]
+#
+#         pad_len = N_objs_max - toekns_img.shape[0]
+#
+#         toekns_img = F.pad(toekns_img, (0, 0, 0, pad_len), value=struct_viz_vocab.pad_index)
+#         numerics_img = F.pad(numerics_img, (0, 0, 0, pad_len), value=struct_viz_vocab.pad_index)
+#
+#         mask = torch.ones(N_objs_max)
+#         mask[toekns_img.shape[0]:] = 0
+#         viz_rep['tokens_img'] = toekns_img
+#         viz_rep['numerics_img'] = numerics_img
+#         viz_rep['mask_img'] = mask

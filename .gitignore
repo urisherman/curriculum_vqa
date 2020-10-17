@@ -2,4 +2,6 @@ data-bin/
 tensorboard-logs/
 notebooks/runs/
 notebooks/experiments/
+notebooks/traintracks/
+notebooks/.word_vectors_cache
 .idea/

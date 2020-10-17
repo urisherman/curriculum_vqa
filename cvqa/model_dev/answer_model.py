@@ -59,13 +59,9 @@ def parse_dims_dict(args):
 USE_CONCEPT_SPACE = False
 
 
-class MostBasicModel(nn.Module):
+class ParentModel(nn.Module):
 
-    # @staticmethod
-    # def build(vocab,
-    #           img_perceptor,
-
-    def __init__(self, prompt_vocab, answer_vocab, img_preceptor, args):
+    def __init__(self, prompt_vocab, answer_vocab, args):
         super().__init__()
         self.args = args
 
@@ -73,8 +69,6 @@ class MostBasicModel(nn.Module):
         self.dims_dict = d
         self.prompt_vocab = prompt_vocab
         self.answer_vocab = answer_vocab
-
-        self.img_perceptor = img_preceptor
 
         self.prompt_encoder = TransformerEncoder.build(
             prompt_vocab,
@@ -91,58 +85,72 @@ class MostBasicModel(nn.Module):
             decoder_attention_heads=1,
             decoder_dropout=0)
 
-        if USE_CONCEPT_SPACE:
-            self.E_c = Embedding(d['N_c'], d['c'])
-            self.W_w_op = nn.Linear(d['w'], d['c'], bias=False)
-        else:
-            d['N_c'] = len(prompt_vocab)
-            self.E_c = self.prompt_encoder.tokens_embedding
-            self.W_w_op = None
+        d['N_c'] = len(prompt_vocab)
+        self.E_c = self.prompt_encoder.tokens_embedding
+        self.W_w_op = None
 
-        self.m_f1 = F1Module(args, self.E_c)
         self.m_ans = AnswerModule(d, answer_vocab)
 
         d['N_ops'] = 2
         self.E_ops = Embedding(d['N_ops'], d['w'])
 
-        self.dropout_layer = nn.Dropout(p=0)
-        self.layer_norm = nn.LayerNorm([d['w']])
-
-    def bos_embeddings(self, B, N):
-        bos_tensor = torch.ones(B, N, dtype=torch.int64).to(device) * self.prompt_vocab.bos_index
-        bos_tensor = self.tokens_embedding(bos_tensor).transpose(0, 1)
-        return bos_tensor
+        self.dropout_layer = nn.Dropout(p=0.15)
+        self.layer_norm = nn.LayerNorm([d['o']])
 
     def forward(self, prompt_tokens, img, target_attention_mask=None):
         B, N_prompt = prompt_tokens.shape
         prompt_encoded, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
 
-        X = self.img_perceptor(img)
-        # X = self.dropout_layer(X)
+        X = img
+        X = self.layer_norm(X)
+        X = self.dropout_layer(X)
+        B, N_objs, _ = X.shape
 
         op_inputs = self.E_ops.weight  # [N_ops, w]
         op_inputs = op_inputs.repeat(B, 1, 1)  # [B, N_ops, w]
 
         w_ops = self.op_decoder(op_inputs, prompt_encoded, prompt_pad_mask)  # [B, N_ops, w]
         w_ops = self.layer_norm(w_ops)
+        ops = w_ops
+        ans_op = ops[:, 0, :]
+        ans_op = self.dropout_layer(ans_op)
 
-        if USE_CONCEPT_SPACE:
-            ops = self.W_w_op(w_ops)  # [B, N_ops, c]
-        else:
-            ops = w_ops
-
-        # ops = F.relu(ops)
-        # ops = self.dropout_layer(ops)
-
-        f1_op = ops[:, 0, :]
-        ans_op = ops[:, 1, :]
-
-        B, N_o, d_o = X.shape
-        X_w = torch.ones(B, N_o, dtype=torch.float32).to(device)
-        X_w = self.m_f1(X, X_w, f1_op)
-
+        X_w = target_attention_mask  #  - torch.rand(B, N_objs)*0.3
         logits = self.m_ans(X, X_w, ans_op)
         return logits.unsqueeze(1)
+
+
+class AnswerModule(nn.Module):
+
+    def __init__(self, dims_dict, vocab):
+        super().__init__()
+        d = dims_dict
+
+        self.vocab = vocab
+        self.dims_dict = dims_dict
+        self.CW_ans = CondLinear(d['o']+1, d['a'], d['c'], bias=True)
+        self.E_a = Embedding(len(vocab), d['a'])
+
+    def forward(self, X, X_weights_in, question_op):
+        """
+        X: [B, N_o, d_o]
+        X_weights_in: [B, N_o]
+        question_op: [B, d_c]
+        """
+        # weighted_X = X.sum(axis=1)  # [B, o]
+        B, N_o, d_o = X.shape
+        indicators = torch.ones(B, N_o, 1)
+        if self.training:
+            indicators -= torch.rand(B, N_o, 1) * 0.01
+
+        X = torch.cat([indicators, X], dim=2)
+        weighted_X = (X_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
+        # weighted_X = (X_weights_in.unsqueeze(2) * torch.ones_like(X)).sum(axis=1)  # [B, o]
+
+        ans_vec = self.CW_ans(weighted_X, question_op)  # [B, a]
+        logits = F.linear(ans_vec.squeeze(1), self.E_a.weight)  # [B, N_a]
+        return logits
+
 
 
 class CondLinear(nn.Module):
@@ -244,140 +252,10 @@ class TransformerAnswerModule(nn.Module):
         return logits
 
 
-class AnswerModule(nn.Module):
-
-    def __init__(self, dims_dict, vocab):
-        super().__init__()
-        d = dims_dict
-
-        self.vocab = vocab
-        self.dims_dict = dims_dict
-        # self.Q_ops = nn_parameter(d['o'], d['a'], d['c'])
-        self.CW_ans = CondLinear(d['o'], d['a'], d['c'], bias=True)
-        # self.W_ans2 = nn.Sequential(
-        #     nn.Linear(10, d['a']),
-        #     nn.ReLU()
-        # )
-        self.E_a = Embedding(len(vocab), d['a'])
-
-    def forward(self, X, X_weights_in, question_op):
-        """
-        X: [B, N_o, d_o]
-        X_weights_in: [B, N_o]
-        question_op: [B, d_c]
-        """
-        # weighted_X = (X_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o]
-        weighted_X = (X_weights_in.unsqueeze(2) * torch.ones_like(X)).sum(axis=1)  # [B, o]
-
-        ans_vec = self.CW_ans(weighted_X, question_op)  # [B, a]
-        # ans_vec = F.relu(ans_vec)
-        # ans_vec = self.W_ans2(ans_vec)
-
-        # W_answer = get_op(question_op, self.Q_ops)  # [B, o, a]
-        # ans_vec = torch.matmul(weighted_X.unsqueeze(1), W_answer)  # [B, a]
-
-        logits = F.linear(ans_vec.squeeze(1), self.E_a.weight)  # [B, N_a]
-        return logits
 
 
-class ExistsAnswerModule(nn.Module):
-
-    def __init__(self, dims_dict, vocab):
-        super().__init__()
-        d = dims_dict
-
-        self.vocab = vocab
-        self.dims_dict = dims_dict
-        # self.E_a = Embedding(len(vocab), d['a'])
-        self.idx_TRUE = self.vocab.index('TRUE')
-        self.idx_FALSE = self.vocab.index('FALSE')
-
-    def forward(self, X, X_weights_in, question_op):
-        """
-        X: [B, N_o, d_o]
-        X_weights_in: [B, N_o]
-        question_op: [B, d_c]
-        """
-        B, N_o, d_o = X.shape
-        a = X_weights_in.sum(axis=1)  # [B]
-        logits = torch.zeros(B, len(self.vocab)).to(device)  # [B, N_a]
-        logits[:, self.idx_TRUE] = a
-        logits[:, self.idx_FALSE] = 1-a
-
-        return logits
 
 
-class F1Module(nn.Module):
-
-    def __init__(self, args, E_c):
-        super().__init__()
-        self.args = args
-        d = parse_dims_dict(args)
-        self.dims_dict = d
-
-        self.W_kc = nn_parameter(d['k'], d['c'])
-        self.C_ops = nn_parameter(d['o'], d['c'], d['k'])
-        self.E_c = E_c
-        self.layer_norm = nn.LayerNorm([d['c']])
-        self.cosim = nn.CosineSimilarity(2)
-
-    def forward(self, X, X_weights_in, op):
-        """
-        X: [B, N_o, d_o]
-        X_weights_in: [B, N_o]
-        op: [B, d_c]
-        """
-        B, N_o, _ = X.shape
-        d = self.dims_dict
-
-        #### Concept Category Predicate
-        # 1) op seed --> batch of concept ops
-        P = op  # P for predicate
-        P_k = F.linear(P, self.W_kc)  # [B, d_k] P_k for predicate category (eg color)
-        P_k = get_op(P_k, self.C_ops)  # [B, d_o, d_c]
-        P_k = self.layer_norm(P_k)
-
-        # 2) Apply derived concept op to each object
-        X_c = torch.matmul(X, P_k)  # [B, N_o, d_c]
-
-        # 3) Compute cosine similarity
-        XP_res = self.cosim(X_c, P.unsqueeze(1))  # [B, N_o]
-        zeros = torch.zeros_like(XP_res).to(device)
-        XP_res = torch.max(XP_res, zeros)
-
-        # # 3) Compute cosine similarity in concept distribution space
-        # X_c_probs = F.softmax(torch.matmul(X_c, self.E_c.weight.T), dim=-1)  # [B, N_o, N_c]
-        # P_c_probs = F.softmax(torch.matmul(P, self.E_c.weight.T), dim=-1)  # [B, N_c]
-        # XP_res = torch.sum(X_c_probs * P_c_probs.unsqueeze(1), dim=-1)  # [B, N_o], holds the probability every object passes the predicate
-
-        #### Logical Not? Other Structures?
-
-        return X_weights_in * XP_res
-
-
-class F1CosineModule(nn.Module):
-
-    def __init__(self, dims_dict, E_c):
-        super().__init__()
-        self.dims_dict = dims_dict
-        d = dims_dict
-
-        self.W_co = nn.Linear(d['c'], d['o'])
-        # self.C_ops = C_ops
-        # self.E_c = E_c
-        # self.layer_norm = nn.LayerNorm([d['c']])
-        self.cosim = nn.CosineSimilarity(2)
-
-    def forward(self, X, X_weights_in, op):
-        """
-        X: [B, N_o, d_o]
-        X_weights_in: [B, N_o]
-        op: [B, d_c]
-        """
-        P_o = self.W_co(op)  # [B, d_o] predicate in object space
-        XP_res = self.cosim(X, P_o.unsqueeze(1))
-
-        return X_weights_in * XP_res
 
 
 class TransformerDecoder(nn.Module):

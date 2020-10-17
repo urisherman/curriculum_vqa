@@ -10,6 +10,8 @@ fairseq
 torchvision
 tensorflow
 
+pytorch-nlp
+
 gdown
 
 

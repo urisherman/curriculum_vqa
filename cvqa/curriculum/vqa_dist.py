@@ -1,7 +1,5 @@
 import json
 import os
-import pathlib
-import shutil
 
 import numpy as np
 import random
@@ -14,14 +12,15 @@ from cvqa.curriculum import plotter
 
 class VQAInstanceDistribution(object):
 
-    def __init__(self, prompts=None):
+    def __init__(self, prompts=None, concept_dict=None):
 
-        self.shapes = ['circle', 'triangle']
-        self.colors = ['blue', 'red', 'grey']
-        self.groundings = {
-            'shape': self.shapes,
-            'color': self.colors
-        }
+        if concept_dict is None:
+            self.concepts = {
+                'shape': ['circle', 'triangle'],
+                'color': ['blue', 'red', 'grey']
+            }
+        else:
+            self.concepts = concept_dict
 
         if prompts is None:
             self.prompts = [
@@ -50,15 +49,23 @@ class VQAInstanceDistribution(object):
         }
 
     def sample_viz_rep(self):
-        loc = np.round(np.random.ranf(2) * 0.8 + 0.1, 2)
-        max_size = min(min(loc), 1 - max(loc)) - .05
-        size = np.round(np.random.ranf() * max_size + .05, 2)
+        N_objs = 1 # random.randint(1, 5)
+        scene_objects = []
+        for i in range(N_objs):
+            loc = np.round(np.random.ranf(2) * 0.8 + 0.1, 2)
+            max_size = min(min(loc), 1 - max(loc)) - .1
+            size = np.round(np.random.ranf() * max_size + .05, 2)
 
+            obj = {
+                'location': loc.tolist(),
+                'size': size
+            }
+            for cc in self.concepts:
+                cc_value = random.choice(self.concepts[cc])
+                obj[cc] = cc_value
+            scene_objects.append(obj)
         return {
-            'shape': random.choice(self.shapes),
-            'color': random.choice(self.colors),
-            'location': loc.tolist(),
-            'size': size
+            'objects': scene_objects
         }
 
     def __flip_answer(self, answer):
@@ -70,6 +77,7 @@ class VQAInstanceDistribution(object):
             return None
 
     def populate(self, concept, prompt, answer, viz_rep):
+        viz_rep = viz_rep['objects'][0]
         realized_synonyms = {
             k: random.choice(v) for k, v in self.synonyms.items()
         }
@@ -82,7 +90,7 @@ class VQAInstanceDistribution(object):
             flip_ans = random.choice([True, False])
             answer = flipped_ans if flip_ans else answer
 
-        for k, v in self.groundings.items():
+        for k, v in self.concepts.items():
             if flipped_ans is not None:
                 if flip_ans:
                     # eg [shape] --> circle (when shape is actually a triangle)

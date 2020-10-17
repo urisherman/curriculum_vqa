@@ -129,11 +129,6 @@ class BaseDataset(torch_utils.data.Dataset):
             else:
                 raise ValueError(f'No such target_mode "{self.target_mode}"')
 
-            if 'viz_rep' in sample:
-                viz_rep = sample['viz_rep']
-                viz_rep['encoded'] = encode_line(viz_rep['shape'] + ' ' + viz_rep['color'], struct_viz_vocab)
-                # viz_rep['encoded_shape'] = encode_line(viz_rep['shape'], struct_viz_vocab)
-
             new_samples.append(sample)
 
         # vocab.finalize()
@@ -193,13 +188,6 @@ class BaseDataset(torch_utils.data.Dataset):
         if self.target_mode == 'natural':
             pad = self.N_target - len(target)
             target = F.pad(target, (0, pad), value=self.vocab.pad_index)
-            # if self.teacher_forcing:
-            #     bos = self.vocab.bos()
-            #     if target[0] != bos:
-            #         target = torch.cat([torch.LongTensor([bos]), target])
-            #
-            #     if target[-1] == self.vocab.eos():
-            #         target = target[:-1]
 
             if target[-1] == self.vocab.eos():
                 target = target[:-1]
@@ -208,21 +196,15 @@ class BaseDataset(torch_utils.data.Dataset):
             img = tv.datasets.folder.default_loader(os.path.join(self.root_dir, sample['image_path']))
             img = self.img_transform(img)
         else:
-            encoded_viz = sample['viz_rep']['encoded']
-            if encoded_viz[-1] == self.struct_viz_vocab.eos():
-                encoded_viz = encoded_viz[:-1]
-
-            loc_and_size = torch.tensor(sample['viz_rep']['location'] + [sample['viz_rep']['size']], dtype=torch.float32)
-            img = {
-                'tokens': encoded_viz,
-                'locsize': loc_and_size
-            }
+            img = sample['viz_rep']['encoded']
 
         ret = {
             'prompt': prompt,
             'img': img,
-            'target': target
+            'target': target,
+            'target_attention_mask': sample['attention_mask']
         }
+
         if self.debug_mode:
             ret['prompt_text'] = sample['prompt']
             ret['target_text'] = sample['target']
@@ -236,16 +218,30 @@ class BaseDataset(torch_utils.data.Dataset):
                f'Samples: {S} (N_prompt={self.N_prompt}, N_target={self.N_target})\n' \
                f'Concepts: {len(self.concept_to_idx)} \n' \
                f'Classes: {len(self.cls_to_idx)} \n' \
-               f'Vocab Tokens:{len(self.vocab)}'
+               f'Prompt Vocab Tokens:{len(self.vocab)} \n' \
+               f'Answer Vocab Tokens:{len(self.ans_vocab)} \n'
 
 
 class Curriculum(BaseDataset):
 
     @staticmethod
+    def from_samples(train_samples, dev_samples):
+        train_samples = Curriculum.process(train_samples)
+        dev_samples = Curriculum.process(dev_samples)
+
+        train_dataset = BaseDataset('-', train_samples, None)
+        dev_dataset = BaseDataset('-', dev_samples, None, vocabs_from=train_dataset)
+
+        train_dataset.use_viz_rep = True
+        dev_dataset.use_viz_rep = True
+
+        # train_dataset.debug_mode = True
+        # dev_dataset.debug_mode = True
+        return train_dataset, dev_dataset
+
+    @staticmethod
     def load_train_dev(root, struct_viz=True):
         train_dataset = Curriculum(root, 'train')
-        vocab = train_dataset.vocab
-        ans_vocab = train_dataset.ans_vocab
         dev_dataset = Curriculum(root, 'dev', vocabs_from=train_dataset)
 
         if struct_viz:
@@ -256,20 +252,14 @@ class Curriculum(BaseDataset):
 
     def __init__(self, root, split='train', vocabs_from=None, prompt_mode='natural', target_mode='natural', limit=None):
         root_dir = os.path.join(root, split)
-        ds_file = os.path.join(root, split, f'dataset.json')
+        ds_file = os.path.join(root, split, 'dataset.json')
 
         download_if_needed('basic_curriculum', root, ds_file)
 
         with open(ds_file) as data:
             samples = json.load(data)
 
-        for sample in samples:
-            if 'question' in sample:
-                sample['prompt'] = sample['question']
-            if 'answer' in sample:
-                sample['target'] = sample['answer']
-
-            # sample['prompt'] = sample['prompt'] + ' ans = ' + sample['target']
+        Curriculum.process(samples)
 
         img_transform = tv.transforms.Compose([
             tv.transforms.Resize(256),
@@ -280,10 +270,66 @@ class Curriculum(BaseDataset):
         super().__init__(root_dir, samples, img_transform, vocabs_from=vocabs_from,
                          prompt_mode=prompt_mode, target_mode=target_mode, limit=limit)
 
+    @staticmethod
+    def process(samples):
+        for sample in samples:
+            if 'question' in sample:
+                sample['prompt'] = sample['question']
+            if 'answer' in sample:
+                sample['target'] = sample['answer']
+
+        return samples
+
+
+class CLEVR(BaseDataset):
+
+    def __init__(self, root, split='train', vocabs_from=None, target_mode='natural', limit=None):
+        questions_path = f'{root}/questions/CLEVR_{split}_questions.json'
+        scenes_path = f'{root}/scenes/CLEVR_{split}_scenes.json'
+
+        scenes_data = None
+        with open(scenes_path) as data:
+            scenes_data = json.load(data)['scenes']
+
+        questions_file = os.path.join(root, questions_path)
+        samples = None
+        with open(questions_file) as data:
+            samples = json.load(data)['questions']
+
+        for sample in samples:
+            sample['prompt'] = sample['question']
+            sample['target'] = sample['answer']
+            img_idx = sample['image_index']
+            scene = scenes_data[img_idx]
+            sample['image_path'] = os.path.join('images', scene['image_filename'])
+            sample['viz_rep'] = self.scene_to_canonical_rep(scene)
+
+        img_transform = tv.transforms.Compose([
+            tv.transforms.Pad((0, 150), fill=300, padding_mode='constant'),
+            tv.transforms.Resize(224),
+            tv.transforms.ToTensor(),
+            tv.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+        super().__init__(os.path.join(root, split), samples, img_transform,
+                         vocabs_from=vocabs_from, prompt_mode='natural', target_mode=target_mode, limit=limit)
+
+    def scene_to_canonical_rep(self, scene):
+        objs = []
+        for obj in scene['objects']:
+            objs.append({
+                'tokens': obj['size'] + ' ' + obj['color'] + ' ' + obj['material'] + ' ' + obj['shape'],
+                'numerics': obj['3d_coords']
+            })
+
+        return {
+            'objects': objs
+        }
+
 
 class NLVR(BaseDataset):
 
-    def __init__(self, root, split='train', vocab=None, target_mode='natural', limit=None, download=False):
+    def __init__(self, root, split='train', vocabs_from=None, target_mode='natural', limit=None, download=False):
         ds_file = os.path.join(root, split, f'{split}.json')
         if download:
             download_if_needed('NLVR', root, ds_file)
@@ -307,7 +353,7 @@ class NLVR(BaseDataset):
         ])
 
         super().__init__(os.path.join(root, split), samples, img_transform,
-                         vocab=vocab, prompt_mode='natural', target_mode=target_mode, limit=limit)
+                         vocabs_from=vocabs_from, prompt_mode='natural', target_mode=target_mode, limit=limit)
 
 
 class SimpleDataset(torch.utils.data.Dataset):
