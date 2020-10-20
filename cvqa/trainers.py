@@ -25,7 +25,7 @@ else:
 
 class VQATrainer(object):
 
-    def __init__(self, log_dir=None, ignore_index=None, sample_mode='natural', progressbar='auto'):
+    def __init__(self, log_dir=None, ignore_index=None, progressbar='auto', pred_target='target'):
         self.ignore_index = ignore_index
 
         self.is_cuda = False
@@ -34,8 +34,8 @@ class VQATrainer(object):
 
         self.log_dir = log_dir
         self.summary_writer = None
-        self.sample_mode = sample_mode
         self.progressbar = progressbar
+        self.pred_target = pred_target
 
     def train(self, model, train_dataset, dev_dataset, optimizer, optim_sched=None, traintracker=None, num_epochs=10, batch_size=32):
         log_dir = self.log_dir
@@ -57,16 +57,6 @@ class VQATrainer(object):
         dev_generator = torch_utils.data.DataLoader(
             dev_dataset, batch_size=batch_size, shuffle=True
         )
-
-        if self.summary_writer and False:
-            try:
-                sample = next(iter(training_generator))
-                sample = self.prep_sample(sample)
-                self.summary_writer.add_graph(model, self._model_input(sample))
-            except:
-                pass
-                # logging.exception("Error writing graph")
-                # warnings.warn("deprecated", DeprecationWarning)
 
         if self.ignore_index is not None:
             ce_crit = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
@@ -142,23 +132,9 @@ class VQATrainer(object):
             traintracker.plot('dev_acc', 'epoch')
 
         return train_loss, train_acc, dev_acc
-
-    def _model_input(self, sample):
-        return sample['prompt'], sample.get('img'), sample['target_attention_mask']  # , sample['target']
-
-    def _model_fwd(self, model, sample):
-        logits = model(*self._model_input(sample))
-        targets = sample['target']
-
-        if self.sample_mode == 'natural':
-            # logits.shape == [B, No, V]
-            logits = logits.view(-1, logits.size(-1))  # [B*No, V]
-            targets = targets.flatten()  # [B*No]
-        # else:
-        #     logits.shape == [B, L]
-        #     targets.shape == [B]
-
-        return logits, targets
+    #
+    # def _model_input(self, sample):
+    #     return sample['prompt'], sample.get('img'), sample['target_attention_mask']
 
     def train_step(self, model, sample, optimizer, criterion):
         # to make reproducible with checkpoints, set seed here appropriately (see example in LabelSmoothedCrossEntropyCriterion)
@@ -167,7 +143,9 @@ class VQATrainer(object):
         optimizer.zero_grad()
         sample = self.prep_sample(sample)
 
-        logits, targets = self._model_fwd(model, sample)
+        logits = model.forward_train(sample)
+        logits = logits.flatten(end_dim=1)  # [B, No * V_target]
+        targets = sample[self.pred_target].flatten()  # [B * No]
 
         loss = criterion(logits, targets)
 
@@ -207,9 +185,10 @@ class VQATrainer(object):
 
                 sample = self.prep_sample(sample)
 
-                logits, y_true = self._model_fwd(model, sample)
-
-                _, y_pred = torch.max(logits.data, -1)
+                y_true = sample[self.pred_target]
+                _, y_pred = model.forward_test(sample, max_len=y_true.shape[1])
+                y_pred = y_pred.flatten()  # [B*No]
+                y_true = y_true.flatten()  # [B*No]
 
                 if self.ignore_index is not None:
                     mask = y_true.ne(self.ignore_index)
@@ -220,24 +199,6 @@ class VQATrainer(object):
                 total += y_true.size(0)
 
             return float(correct) / float(total)
-
-    def get_clf_predictions(self, model, dataset):
-        res = utils.torch_zeros(len(dataset), 3, dtype=torch.int64)
-        model.eval()
-        dataset.teacher_forcing = False
-
-        dloader = torch.utils.data.DataLoader(
-            datasets.WithIndicesDataset(dataset), shuffle=False, batch_size=64)
-
-        with torch.set_grad_enabled(False):
-            for s in dloader:
-                s = self.prep_sample(s)
-
-                logits, y_true = self._model_fwd(model, s)
-
-                _, y_pred = torch.max(logits.data, -1)
-                res[s['index']] = torch.stack([s['index'], y_true, y_pred], dim=1)
-        return res.cpu()
 
     def get_predictions(self, model, dataset):
         model.eval()
@@ -257,7 +218,7 @@ class VQATrainer(object):
                 s = utils.sample_to_cuda(s)
 
                 targets = s['target']
-                logits = model.forward(*self._model_input(s))
+                logits = model.forward_test(s)
 
                 B, N_out, V = logits.shape
                 flat_logits = logits.view(-1, logits.size(-1))  # [B*No, V]
@@ -268,18 +229,5 @@ class VQATrainer(object):
                 y_preds[s['index']] = y_pred
 
         return y_trues.cpu().numpy(), y_preds.cpu().numpy()
-
-
-class ImageClassifierTrainer(VQATrainer):
-
-    def __init__(self, log_dir=None):
-        super().__init__(log_dir=log_dir)
-
-    def _model_input(self, sample):
-        return sample['prompt'], sample['img']
-
-    def _model_fwd(self, model, sample):
-        model_output = model(*self._model_input(sample))
-        return model_output, sample['target']
 
 

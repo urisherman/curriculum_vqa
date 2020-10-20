@@ -163,6 +163,9 @@ class BaseDataset(torch_utils.data.Dataset):
         else:
             self.N_target = 1
 
+        if 'program_tokens' in new_samples[0]:
+            self.N_program = max(map(lambda s: len(s['program_tokens']), new_samples)) + 1  # +1 for eos / bos
+
         self.teacher_forcing = True
         self.use_viz_rep = False
         self.debug_mode = False
@@ -174,6 +177,11 @@ class BaseDataset(torch_utils.data.Dataset):
         sample = self.samples[index]
         img = tv.datasets.folder.default_loader(os.path.join(self.root_dir, sample['image_path']))
         return self.img_transform(img)
+
+    def pad_tokens(self, t, target_len):
+        pad = target_len- len(t)
+        padded = F.pad(t, (0, pad), value=self.vocab.pad_index)
+        return padded
 
     def __getitem__(self, index):
         sample = self.samples[index]
@@ -201,14 +209,26 @@ class BaseDataset(torch_utils.data.Dataset):
         ret = {
             'prompt': prompt,
             'img': img,
-            'target': target,
-            'target_attention_mask': sample['attention_mask']
+            'target': target
         }
+        if 'program_tokens' in sample:
+            program_tokens = sample['program_tokens']
+            bos = torch.tensor([self.vocab.bos_index])
+            eos = torch.tensor([self.vocab.eos_index])
+            program_target_input = self.pad_tokens(torch.cat([bos, program_tokens]), self.N_program)
+            program_target_output = self.pad_tokens(torch.cat([program_tokens, eos]), self.N_program)
+            ret['target_program_in'] = program_target_input
+            ret['target_program_out'] = program_target_output
+
+        if 'attention_mask' in sample:
+            ret['target_attention_mask'] = sample.get['attention_mask']
 
         if self.debug_mode:
             ret['prompt_text'] = sample['prompt']
             ret['target_text'] = sample['target']
             ret['struct_rep'] = sample['viz_rep']
+            if 'program_str' in sample:
+                ret['program_str'] = sample['program_str']
 
         return ret
 
@@ -283,7 +303,77 @@ class Curriculum(BaseDataset):
 
 class CLEVR(BaseDataset):
 
-    def __init__(self, root, split='train', vocabs_from=None, target_mode='natural', limit=None):
+    @staticmethod
+    def load_train_dev(root, struct_viz=True):
+        ds_train = CLEVR(root, 'train')
+        ds_dev = CLEVR(root, 'val', vocabs_from=ds_train)
+
+        if struct_viz:
+            ds_train.use_viz_rep = True
+            ds_dev.use_viz_rep = True
+            CLEVR.add_encoded_viz(ds_train.samples + ds_dev.samples)
+
+        return ds_train, ds_dev
+
+    @staticmethod
+    def add_encoded_viz(samples):
+        import itertools
+        from tqdm import tqdm
+        import torch.nn.functional as F
+        from cvqa.curriculum import VizEncoder
+
+        concepts = {
+            'color': set(),
+            'shape': set(),
+            'material': set(),
+            'size': set()
+        }
+
+        for o in itertools.chain(*(s['scene']['objects'] for s in samples)):
+            for k in concepts:
+                concepts[k].add(o[k])
+        concepts = {k: list(v) for k, v in concepts.items()}
+
+        N_max_objs = max(map(lambda s: len(s['scene']['objects']), samples))
+
+        vizenc = VizEncoder(concepts, numeric_fields=['3d_coords'])
+
+        for s in tqdm(samples):
+            N_objs = len(s['scene']['objects'])
+            encoded_viz = vizenc.encode(s['scene'])
+            encoded_viz = F.pad(encoded_viz, [0, 0, 0, N_max_objs - N_objs], value=0)
+            s['viz_rep']['encoded'] = encoded_viz
+
+    @staticmethod
+    def tokenize_program(prog_str):
+        import re
+        return [x for x in re.compile('([().,\\s])').split(prog_str) if x.strip() != '']
+
+    @staticmethod
+    def build_prog_str(prog):
+        answer_op = prog[-1]
+        answer_op_inputs = []
+        for i in answer_op['inputs']:
+            # generate obj pipeline by rolling backwards
+            pipe = []
+            curr_line = prog[i]
+            while True:
+                func_args = curr_line["value_inputs"]
+                if len(func_args) > 0:
+                    func_args = f"'{func_args[0]}'"
+                else:
+                    func_args = ''
+                pipe.append(curr_line['function'] + f'({func_args})')
+                if len(curr_line['inputs']) == 0:
+                    break
+                else:
+                    curr_line = prog[curr_line['inputs'][0]]
+            answer_op_inputs.append('.'.join(pipe[::-1]))
+
+        output = answer_op['function'] + '(' + ', '.join(answer_op_inputs) + ')'
+        return output
+
+    def __init__(self, root, split='train', vocabs_from=None, parse_programs=True, limit=None):
         questions_path = f'{root}/questions/CLEVR_{split}_questions.json'
         scenes_path = f'{root}/scenes/CLEVR_{split}_scenes.json'
 
@@ -296,6 +386,11 @@ class CLEVR(BaseDataset):
         with open(questions_file) as data:
             samples = json.load(data)['questions']
 
+        if vocabs_from is not None:
+            programs_vocab = vocabs_from.programs_vocab
+        else:
+            programs_vocab = Dictionary()
+
         for sample in samples:
             sample['prompt'] = sample['question']
             sample['target'] = sample['answer']
@@ -303,7 +398,16 @@ class CLEVR(BaseDataset):
             scene = scenes_data[img_idx]
             sample['image_path'] = os.path.join('images', scene['image_filename'])
             sample['viz_rep'] = self.scene_to_canonical_rep(scene)
+            sample['scene'] = scene
+            if parse_programs:
+                prog_str = CLEVR.build_prog_str(sample['program'])
+                sample['program_str'] = prog_str
+                program_tokens = []
+                for token in CLEVR.tokenize_program(prog_str):
+                    program_tokens.append(programs_vocab.add_symbol(token))
+                sample['program_tokens'] = torch.tensor(program_tokens)
 
+        self.programs_vocab = programs_vocab
         img_transform = tv.transforms.Compose([
             tv.transforms.Pad((0, 150), fill=300, padding_mode='constant'),
             tv.transforms.Resize(224),
@@ -312,7 +416,7 @@ class CLEVR(BaseDataset):
         ])
 
         super().__init__(os.path.join(root, split), samples, img_transform,
-                         vocabs_from=vocabs_from, prompt_mode='natural', target_mode=target_mode, limit=limit)
+                         vocabs_from=vocabs_from, prompt_mode='natural', target_mode='natural', limit=limit)
 
     def scene_to_canonical_rep(self, scene):
         objs = []
