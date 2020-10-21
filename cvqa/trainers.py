@@ -143,7 +143,7 @@ class VQATrainer(object):
         optimizer.zero_grad()
         sample = self.prep_sample(sample)
 
-        logits = model.forward_train(sample)
+        logits = self.forward_train(model, sample)
         logits = logits.flatten(end_dim=1)  # [B, No * V_target]
         targets = sample[self.pred_target].flatten()  # [B * No]
 
@@ -162,6 +162,23 @@ class VQATrainer(object):
             return fairseq_utils.move_to_cuda(sample)
         else:
             return sample
+
+    def forward_train(self, model, sample):
+        model_fn = getattr(model, "forward_train", None)
+        if callable(model_fn):
+            return model.forward_train(sample)
+        else:
+            return model.forward(sample['prompt'], sample['img'])
+
+    def forward_test(self, model, sample):
+        model_fn = getattr(model, "forward_test", None)
+        if callable(model_fn):
+            _, y_pred = model.forward_test(sample)
+            return y_pred
+        else:
+            logits = model.forward(sample['prompt'], sample['img'])
+            _, y_pred = torch.max(logits, axis=-1)
+            return y_pred
 
     def evaluate(self, model, data_generator, iter_lim=None):
         """
@@ -185,10 +202,9 @@ class VQATrainer(object):
 
                 sample = self.prep_sample(sample)
 
-                y_true = sample[self.pred_target]
-                _, y_pred = model.forward_test(sample, max_len=y_true.shape[1])
+                y_pred = self.forward_test(model, sample)
                 y_pred = y_pred.flatten()  # [B*No]
-                y_true = y_true.flatten()  # [B*No]
+                y_true = sample[self.pred_target].flatten()  # [B*No]
 
                 if self.ignore_index is not None:
                     mask = y_true.ne(self.ignore_index)
@@ -218,12 +234,7 @@ class VQATrainer(object):
                 s = utils.sample_to_cuda(s)
 
                 targets = s['target']
-                logits = model.forward_test(s)
-
-                B, N_out, V = logits.shape
-                flat_logits = logits.view(-1, logits.size(-1))  # [B*No, V]
-                _, y_pred = torch.max(flat_logits.data, -1)
-                y_pred = y_pred.reshape(B, N_out)
+                y_pred = self.forward_test(model, s)
 
                 y_trues[s['index']] = targets
                 y_preds[s['index']] = y_pred

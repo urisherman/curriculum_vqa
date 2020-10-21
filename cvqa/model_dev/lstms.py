@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from cvqa.model_dev import utils
+from cvqa.model_dev import misc
+from cvqa.utils import device
 
 
 class Seq2SeqLSTM(nn.Module):
@@ -34,8 +35,8 @@ class Seq2SeqLSTM(nn.Module):
         self.E_target = nn.Embedding(args['V_target'], args['d_target'])
 
     def init_hiddens(self, B):
-        h_0 = torch.zeros(self.num_layers, B, self.d_h)
-        c_0 = torch.zeros(self.num_layers, B, self.d_h)
+        h_0 = torch.zeros(self.num_layers, B, self.d_h).to(device)
+        c_0 = torch.zeros(self.num_layers, B, self.d_h).to(device)
         return h_0, c_0
 
     def forward(self, X, decoder_input, decoder_hidden_state=None):
@@ -72,13 +73,16 @@ class Seq2SeqLSTM(nn.Module):
         return logits
 
     def forward_test(self, sample: dict, max_len=30):
+        y_true = sample['target_program_in']
+        max_len = y_true.shape[1]
+
         X = sample['prompt']
         B, N_seq = X.shape
 
-        B_update_mask = torch.ones(B, dtype=torch.bool)
-        y_pred = torch.ones(B, max_len, dtype=torch.long) * self.args['pad_index']
-        logits = torch.zeros(B, max_len, self.args['V_target'])
-        y_prev_token = torch.ones(B, 1, dtype=torch.long) * self.args['bos_index']
+        B_update_mask = torch.ones(B, dtype=torch.bool).to(device)
+        y_pred = torch.ones(B, max_len, dtype=torch.long).to(device) * self.args['pad_index']
+        logits = torch.zeros(B, max_len, self.args['V_target']).to(device)
+        y_prev_token = torch.ones(B, 1, dtype=torch.long).to(device) * self.args['bos_index']
         decode_state = None
         for t in range(max_len):
             y_next_logit, decode_state = self(X, y_prev_token, decode_state)
@@ -91,8 +95,8 @@ class Seq2SeqLSTM(nn.Module):
 
 
 if __name__ == '__main__':
-    X_all, vocab_X, X_txt = utils.random_sentences('abcdefghijklmnop', N_samples=10, sentence_len=5, N_words=100, word_len=4)
-    Y_all, vocab_Y, Y_txt = utils.random_sentences('ABCDEFGHIJKLMNOP', N_samples=10, sentence_len=5, N_words=100, word_len=4)
+    X_all, vocab_X, X_txt = misc.random_sentences('abcdefghijklmnop', N_samples=10, sentence_len=5, N_words=100, word_len=4)
+    Y_all, vocab_Y, Y_txt = misc.random_sentences('ABCDEFGHIJKLMNOP', N_samples=10, sentence_len=5, N_words=100, word_len=4)
 
     from tqdm import tqdm
 

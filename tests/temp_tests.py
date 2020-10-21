@@ -31,21 +31,5 @@ class TempTest(unittest.TestCase):
         torch.manual_seed(seed)
 
     def test_foo(self):
-        concept_dict = {
-            'color': ['blue', 'brown', 'cyan', 'gray'],  # , 'green', 'purple', 'red', 'yellow'],
-            'material': ['metal', 'rubber', 'plastic'],
-            'shape': ['triangle', 'circle', 'square']
-        }
-
-        vqa_dist = VQAInstanceDistribution2(concept_dict=concept_dict, d_img=16)
-        ds_train, ds_dev = datasets.Curriculum.from_samples(
-            vqa_dist.sample_dataset(images=100, prompts_per_image=3),
-            vqa_dist.sample_dataset(images=20, prompts_per_image=3),
-        )
-
-        args = answer_model.default_args()
-        model = answer_model.ParentModel(ds_train.vocab, ds_train.ans_vocab, args)
-
-        trainer = trainers.VQATrainer(progressbar='epochs')
-        print(trainer.evaluate(model, torch.utils.data.DataLoader(ds_train, batch_size=B)))
+        pass
 

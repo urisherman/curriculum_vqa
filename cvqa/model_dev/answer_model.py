@@ -97,8 +97,16 @@ class ParentModel(nn.Module):
         self.dropout_layer = nn.Dropout(p=0.15)
         self.layer_norm = nn.LayerNorm([d['o']])
 
+    def forward_train(self, sample):
+        return self.forward(sample['prompt'], sample['img'], sample['target_attention_mask'])
+
+    def forward_test(self, sample):
+        logits = self.forward(sample['prompt'], sample['img'], sample['target_attention_mask'])
+        _, y_pred = torch.max(logits, axis=-1)
+        return logits, y_pred
+
     def forward(self, prompt_tokens, img, target_attention_mask=None):
-        B, N_prompt = prompt_tokens.shape
+
         prompt_encoded, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
 
         X = img
@@ -139,7 +147,7 @@ class AnswerModule(nn.Module):
         """
         # weighted_X = X.sum(axis=1)  # [B, o]
         B, N_o, d_o = X.shape
-        indicators = torch.ones(B, N_o, 1)
+        indicators = torch.ones(B, N_o, 1).to(device)
         if self.training:
             indicators -= torch.rand(B, N_o, 1) * 0.01
 
@@ -150,7 +158,6 @@ class AnswerModule(nn.Module):
         ans_vec = self.CW_ans(weighted_X, question_op)  # [B, a]
         logits = F.linear(ans_vec.squeeze(1), self.E_a.weight)  # [B, N_a]
         return logits
-
 
 
 class CondLinear(nn.Module):
@@ -341,7 +348,7 @@ class PositionalEncoding(nn.Module):
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        pe = pe.unsqueeze(0).transpose(0, 1).to(device)
         self.register_buffer('pe', pe)
 
     def forward(self, x):

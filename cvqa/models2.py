@@ -113,6 +113,14 @@ class MostBasicModel(nn.Module):
         bos_tensor = self.tokens_embedding(bos_tensor).transpose(0, 1)
         return bos_tensor
 
+    def forward_train(self, sample):
+        return self.forward(sample['prompt'], sample['img'], sample.get('attention_mask', None))
+
+    def forward_test(self, sample, max_len=None):
+        logits = self.forward(sample['prompt'], sample['img'], sample.get('attention_mask', None))
+        _, y_pred = torch.max(logits, axis=-1)
+        return logits, y_pred
+
     def forward(self, prompt_tokens, img, target_attention_mask=None):
         B, N_prompt = prompt_tokens.shape
         prompt_encoded, prompt_pad_mask = self.prompt_encoder(prompt_tokens)

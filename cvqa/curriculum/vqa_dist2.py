@@ -15,7 +15,7 @@ from cvqa.curriculum.vizencoder import VizEncoder
 
 class VQAInstanceDistribution2(object):
 
-    def __init__(self, concept_dict, prompt_types_filter=None, d_img=32, N_max_objs=7):
+    def __init__(self, concept_dict, prompt_types_filter=None, d_img=16, N_max_objs=7):
 
         self.concepts = concept_dict
         self.N_k = len(concept_dict)

@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from cvqa.model_dev.utils import Vocabulary
+from cvqa.model_dev.misc import Vocabulary
 
 
 class AutoencConceptsModel(nn.Module):

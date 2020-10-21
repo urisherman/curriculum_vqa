@@ -221,7 +221,7 @@ class BaseDataset(torch_utils.data.Dataset):
             ret['target_program_out'] = program_target_output
 
         if 'attention_mask' in sample:
-            ret['target_attention_mask'] = sample.get['attention_mask']
+            ret['target_attention_mask'] = sample['attention_mask']
 
         if self.debug_mode:
             ret['prompt_text'] = sample['prompt']
