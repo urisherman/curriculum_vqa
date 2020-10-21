@@ -5,9 +5,10 @@ import torch.nn.functional as F
 import random
 import numpy as np
 
+
 class Vocabulary(object):
 
-    def __init__(self, d_embed=16):
+    def __init__(self):
         self.unk_index = 0
         self.pad_index = 1
         self.bos_index = 2
@@ -20,7 +21,6 @@ class Vocabulary(object):
         }
         self.idxs = None
         self.building = True
-        self.d_embed = d_embed
 
     def __len__(self):
         return len(self.tokens)

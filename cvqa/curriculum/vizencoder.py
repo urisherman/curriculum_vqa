@@ -7,8 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchnlp.encoders.text import WhitespaceEncoder
-from torchnlp.word_to_vector import GloVe
+from cvqa.model_dev.utils import Vocabulary
 
 
 class AutoencConceptsModel(nn.Module):
@@ -100,9 +99,14 @@ class VizEncoder(object):
 
         concept_keys = list(concept_dict.keys())
         concept_values = list(itertools.chain(*concept_dict.values()))
-        encoder = WhitespaceEncoder(concept_keys + concept_values)
-        vocab_set = set(encoder.vocab)
-        N_c = encoder.vocab_size
+
+        concepts_vocab = Vocabulary()
+        for token in itertools.chain(concept_keys, concept_values):
+            concepts_vocab.encode_symbol(token)
+
+        N_c = len(concepts_vocab)
+
+        concepts_vocab.build()
 
         # d_words = 100
         #
@@ -116,9 +120,9 @@ class VizEncoder(object):
             obj = []
             for ck in concept_dict:
                 cv = random.choice(concept_dict[ck])
-                c_id = encoder.encode(cv)
+                c_id = concepts_vocab.encode_symbol(cv)
                 obj.append(c_id)
-            objects.append(torch.cat(obj))
+            objects.append(torch.tensor(obj))
 
         X_all = torch.stack(objects)
         # y_true = torch.stack(objects)
@@ -133,7 +137,7 @@ class VizEncoder(object):
         losses = train_model(model, data_loader, num_epochs=num_epochs)
         acc = eval_model(model, ds)
 
-        self.tokens_encoder = encoder
+        self.tokens_vocab = concepts_vocab
         self.X_all = X_all
         self.model = model
         self.losses = losses
@@ -147,8 +151,8 @@ class VizEncoder(object):
         for i, o in enumerate(viz['objects']):
             obj_tokens = []
             for ck in self.concept_dict:
-                obj_tokens.append(self.tokens_encoder.encode(o[ck]))
-            viz_encoded_tokens[i] = torch.cat(obj_tokens)
+                obj_tokens.append(self.tokens_vocab.encode_symbol(o[ck]))
+            viz_encoded_tokens[i] = torch.tensor(obj_tokens)
 
             num_vec = []
             if self.numeric_fields is not None:

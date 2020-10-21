@@ -93,7 +93,7 @@ class VQATrainer(object):
             if traintracker:
                 traintracker.log_metric('loss', info['loss'])
 
-            if prg_train is not None:
+            if i % 10 == 0 and prg_train is not None:
                 running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
                 steps = epoch*batch_size + i
                 status_str = f'[epoch={epoch}, steps={steps}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
@@ -113,7 +113,7 @@ class VQATrainer(object):
             for epoch in range(num_epochs):
                 eval_epoch(epoch)
                 train_epoch(training_generator, epoch)
-        elif self.progressbar == 'steps' or (self.progressbar == 'auto' and num_epochs < 20):
+        elif self.progressbar == 'steps' or (self.progressbar == 'auto' and num_epochs < 5):
             for epoch in range(num_epochs):
                 eval_epoch(epoch)
                 with tqdm(training_generator) as prg_train:
