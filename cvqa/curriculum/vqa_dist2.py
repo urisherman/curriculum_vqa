@@ -155,7 +155,7 @@ class VQAInstanceDistribution2(object):
         questions = []
         for question_k in concept_dict:
             refs_dict = {}
-            num_refs = random.randint(1, self.N_k)
+            num_refs = random.randint(1, self.max_ref_concepts)
             o_concept_refs = np.random.choice(list(concept_dict.keys()), size=num_refs, replace=False)
             o_concept_refs = [k for k in concept_dict.keys() if k in o_concept_refs and k != question_k]
             if len(o_concept_refs) > 0:
