@@ -15,13 +15,13 @@ from cvqa.curriculum.vizencoder import VizEncoder
 
 class VQAInstanceDistribution2(object):
 
-    def __init__(self, concept_dict, prompt_types_filter=None, d_img=16, N_max_objs=7):
+    def __init__(self, concept_dict, prompt_types_filter=None, d_img=16, N_max_objs=7, max_ref_concepts=2):
 
         self.concepts = concept_dict
         self.N_k = len(concept_dict)
         self.N_max_objs = N_max_objs
         self.prompt_types_filter = prompt_types_filter
-
+        self.max_ref_concepts = max_ref_concepts
         self.synonyms = {
             'item': ['item', 'object', 'thing'],
             'image': ['image', 'picture']
@@ -51,6 +51,9 @@ class VQAInstanceDistribution2(object):
         encoded_viz = self.vizenc.encode(viz)
         encoded_viz = F.pad(encoded_viz, [0, 0, 0, self.N_max_objs - N_objs], value=0)
         viz['encoded'] = encoded_viz
+        objects_mask = torch.zeros(self.N_max_objs, dtype=torch.bool)
+        objects_mask[:N_objs] = 1
+        viz['objects_mask'] = objects_mask
         return viz
 
     def attention_questions(self, predicate, att_mask):
@@ -106,7 +109,7 @@ class VQAInstanceDistribution2(object):
         return list(zip(questions, [att_mask]*len(questions)))
 
     def sample_positive_attention(self, viz):
-        num_concepts = random.randint(1, 2)
+        num_concepts = random.randint(1, self.max_ref_concepts)
         P_concepts = np.random.choice(list(self.concepts.keys()), size=num_concepts, replace=False)
 
         objects = viz['objects']
@@ -130,7 +133,7 @@ class VQAInstanceDistribution2(object):
         return True
 
     def sample_negative_attention(self, viz):
-        num_concepts = random.randint(1, self.N_k)
+        num_concepts = random.randint(1, self.max_ref_concepts)
         for i in range(20):
             P_concepts = np.random.choice(list(self.concepts.keys()), size=num_concepts, replace=False)
 
@@ -206,11 +209,13 @@ class VQAInstanceDistribution2(object):
 
         ret = []
         for q in sampled_questions:
+            att_mask = q[1]
+            att_mask[~viz_rep['objects_mask']] = -1
             ret.append({
                 'prompt_type': q[0][0],
                 'prompt': q[0][1],
                 'target': q[0][2],
-                'attention_mask': q[1]
+                'attention_mask': att_mask.long()
             })
         return ret
 
@@ -227,6 +232,7 @@ class VQAInstanceDistribution2(object):
                     'image_path': rel_img_path
                 }
                 vqa_sample.update(p)
+                self.add_debug_info(vqa_sample)
                 dataset.append(vqa_sample)
 
         # random.shuffle(dataset)
@@ -258,19 +264,15 @@ class VQAInstanceDistribution2(object):
         with open(os.path.join(root, 'dataset.json'), 'w') as f:
             json.dump(dataset, f)
 
-    @staticmethod
-    def to_debug_rep(dataset):
-        ret = []
-        for x in dataset:
-            a = np.array([o['color'] + ' ' + o['material'] + ' ' + o['shape'] for o in x['viz_rep']['objects']])
-            scene_text_arr = np.stack([x['attention_mask'][:len(a)].numpy().astype(int), a]).T
-            prompt_answer = x['prompt'] + ' --> ' + x['target']
-            ret.append({
-                'TYPE': x['prompt_type'],
-                'PROMPT': prompt_answer,
-                'SCENE ': scene_text_arr
-            })
-        return ret
+    def add_debug_info(self, x):
+        a = np.array([o['color'] + ' ' + o['material'] + ' ' + o['shape'] for o in x['viz_rep']['objects']])
+        scene_text_arr = np.stack([x['attention_mask'][:len(a)].numpy().astype(int), a]).T
+        prompt_answer = x['prompt'] + ' --> ' + x['target']
+        x['debug_info'] = {
+            'TYPE': x['prompt_type'],
+            'PROMPT': prompt_answer,
+            'SCENE ': scene_text_arr
+        }
 
 
 if __name__ == '__main__':

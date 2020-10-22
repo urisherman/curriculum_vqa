@@ -6,11 +6,12 @@ import numpy as np
 import pathlib
 
 import torch
+import torch.nn as nn
 
 from cvqa import datasets, trainers, fairseq_misc, utils, viz, models2
 from cvqa.curriculum import VQAInstanceDistribution2
 from cvqa.datasets import Curriculum
-from cvqa.model_dev import answer_model
+from cvqa.model_dev import answer_model, f1_model
 from cvqa.model_dev.lstms import Seq2SeqLSTM
 from cvqa.vis_models import StructuredImageModel
 
@@ -59,7 +60,28 @@ class Models2Test(unittest.TestCase):
         model = answer_model.ParentModel(ds_train.vocab, ds_train.ans_vocab, args)
 
         trainer = trainers.VQATrainer(progressbar='epochs')
-        print(trainer.evaluate(model, torch.utils.data.DataLoader(ds_train, batch_size=B)))
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        trainer.train(model, ds_train, ds_dev, optimizer, num_epochs=2, batch_size=B)
+
+    def test_F1Model_curriculum(self):
+        concept_dict = {
+            'color': ['blue', 'brown', 'cyan', 'gray'],
+            'material': ['metal', 'rubber', 'plastic'],
+            'shape': ['triangle', 'circle', 'square']
+        }
+
+        vqa_dist = VQAInstanceDistribution2(concept_dict=concept_dict, d_img=16, max_ref_concepts=1)
+        ds_train, ds_dev = datasets.Curriculum.from_samples(
+            vqa_dist.sample_dataset(images=100, prompts_per_image=3),
+            vqa_dist.sample_dataset(images=20, prompts_per_image=3),
+        )
+
+        args = f1_model.default_args()
+        model = f1_model.ParentModel(ds_train.vocab, ds_train.ans_vocab, args)
+
+        trainer = trainers.VQATrainer(loss_fn=nn.NLLLoss(ignore_index=-1), pred_target='target_attention_mask', ignore_index=-1, progressbar='epochs')
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        trainer.train(model, ds_train, ds_dev, optimizer, num_epochs=2, batch_size=B)
 
     def test_MostBasicModel_curriculum(self):
         concept_dict = {

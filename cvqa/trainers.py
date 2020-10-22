@@ -25,7 +25,7 @@ else:
 
 class VQATrainer(object):
 
-    def __init__(self, log_dir=None, ignore_index=None, progressbar='auto', pred_target='target'):
+    def __init__(self, log_dir=None, ignore_index=-100, loss_fn=None, progressbar='auto', pred_target='target'):
         self.ignore_index = ignore_index
 
         self.is_cuda = False
@@ -36,6 +36,11 @@ class VQATrainer(object):
         self.summary_writer = None
         self.progressbar = progressbar
         self.pred_target = pred_target
+
+        if loss_fn is None:
+            self.loss_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
+        else:
+            self.loss_fn = loss_fn
 
     def train(self, model, train_dataset, dev_dataset, optimizer, optim_sched=None, traintracker=None, num_epochs=10, batch_size=32):
         log_dir = self.log_dir
@@ -58,11 +63,6 @@ class VQATrainer(object):
             dev_dataset, batch_size=batch_size, shuffle=True
         )
 
-        if self.ignore_index is not None:
-            ce_crit = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
-        else:
-            ce_crit = nn.CrossEntropyLoss()
-
         train_loss = []
         train_acc = []
         dev_acc = []
@@ -83,7 +83,7 @@ class VQATrainer(object):
         def train_step_and_log(epoch, i, sample, prg_train=None):
             if traintracker:
                 traintracker.start('train_step')
-            info = self.train_step(model, sample, optimizer, ce_crit)
+            info = self.train_step(model, sample, optimizer)
             if optim_sched is not None:
                 optim_sched.step()
 
@@ -99,14 +99,18 @@ class VQATrainer(object):
                 status_str = f'[epoch={epoch}, steps={steps}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
                 prg_train.set_description(status_str)
 
+        grad_warnings = {}
+
         def train_epoch(train_data, epoch, prg_train=None):
             for i, sample in enumerate(train_data):
                 train_step_and_log(epoch, i, sample, prg_train)
 
+            for tag, parm in model.named_parameters():
+                if parm.grad is None and tag not in grad_warnings:
+                    warnings.warn(f'model parameter {tag} has no gradients')
+                    grad_warnings[tag] = True
+
             if self.summary_writer is not None:
-                for tag, parm in model.named_parameters():
-                    if parm.grad is None:
-                        warnings.warn(f'model parameter {tag} has no gradients')
                     self.summary_writer.add_histogram(tag, parm.grad.data.cpu().numpy(), epoch)
 
         if self.progressbar == 'none':
@@ -136,7 +140,7 @@ class VQATrainer(object):
     # def _model_input(self, sample):
     #     return sample['prompt'], sample.get('img'), sample['target_attention_mask']
 
-    def train_step(self, model, sample, optimizer, criterion):
+    def train_step(self, model, sample, optimizer):
         # to make reproducible with checkpoints, set seed here appropriately (see example in LabelSmoothedCrossEntropyCriterion)
 
         model.train()
@@ -144,10 +148,10 @@ class VQATrainer(object):
         sample = self.prep_sample(sample)
 
         logits = self.forward_train(model, sample)
-        logits = logits.flatten(end_dim=1)  # [B, No * V_target]
+        logits = logits.flatten(end_dim=1)  # [B * No, V_target]
         targets = sample[self.pred_target].flatten()  # [B * No]
 
-        loss = criterion(logits, targets)
+        loss = self.loss_fn(logits, targets)
 
         loss.backward()
         optimizer.step()
@@ -211,7 +215,11 @@ class VQATrainer(object):
                     y_true = y_true[mask]
                     y_pred = y_pred[mask]
 
-                correct += (y_pred == y_true).sum()
+                if self.ignore_index == -1:
+                    ## hack to indicate the 0-1 attention mask prediction case
+                    correct += (1 - torch.abs(y_pred - y_true)).sum()
+                else:
+                    correct += (y_pred == y_true).sum()
                 total += y_true.size(0)
 
             return float(correct) / float(total)

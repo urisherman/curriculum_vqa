@@ -222,13 +222,21 @@ class BaseDataset(torch_utils.data.Dataset):
 
         if 'attention_mask' in sample:
             ret['target_attention_mask'] = sample['attention_mask']
+            ret['objects_mask'] = sample['viz_rep']['objects_mask']
 
         if self.debug_mode:
-            ret['prompt_text'] = sample['prompt']
-            ret['target_text'] = sample['target']
-            ret['struct_rep'] = sample['viz_rep']
+            if 'debug_info' in sample:
+                ret['debug_info'] = sample['debug_info']
+            else:
+                debug_info = {
+                    'prompt_text': sample['prompt'],
+                    'target_text': sample['target'],
+                    'struct_rep': sample['viz_rep']
+                }
+                ret['debug_info'] = debug_info
+
             if 'program_str' in sample:
-                ret['program_str'] = sample['program_str']
+                ret['debug_info']['program_str'] = sample['program_str']
 
         return ret
 
