@@ -149,7 +149,7 @@ class AnswerModule(nn.Module):
         B, N_o, d_o = X.shape
         indicators = torch.ones(B, N_o, 1).to(device)
         if self.training:
-            indicators -= torch.rand(B, N_o, 1) * 0.01
+            indicators -= torch.rand(B, N_o, 1).to(device) * 0.01
 
         X = torch.cat([indicators, X], dim=2)
         weighted_X = (X_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
