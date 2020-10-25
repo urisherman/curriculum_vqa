@@ -63,6 +63,8 @@ class VQATrainer(object):
             dev_dataset, batch_size=batch_size, shuffle=True
         )
 
+        steps_per_epoch = len(train_dataset) // batch_size
+
         train_loss = []
         train_acc = []
         dev_acc = []
@@ -95,7 +97,7 @@ class VQATrainer(object):
 
             if i % 10 == 0 and prg_train is not None:
                 running_mean_loss = statistics.mean(train_loss[-min(len(train_loss), 100):])
-                steps = epoch*batch_size + i
+                steps = epoch*steps_per_epoch + i
                 status_str = f'[epoch={epoch}, steps={steps}, train_acc={train_acc[-1]:.2f}, dev_acc={dev_acc[-1]:.2f}] loss: {running_mean_loss:.3f}'
                 prg_train.set_description(status_str)
 
