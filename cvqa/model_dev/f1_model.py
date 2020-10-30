@@ -92,7 +92,7 @@ class ParentModel(nn.Module):
         self.W_w_op = None
 
         # self.m_f1 = F1ModuleMid(args, self.E_c)
-        self.m_f1 = F1ModuleSimple(args, self.E_c)
+        self.m_f1 = F1ModuleSimple(args)
 
         d['N_ops'] = 2
         self.E_ops = blocks.Embedding(d['N_ops'], d['w'])
@@ -137,7 +137,7 @@ class ParentModel(nn.Module):
 
 class F1ModuleSimple(nn.Module):
 
-    def __init__(self, args, E_c):
+    def __init__(self, args):
         super().__init__()
         self.args = args
         d = parse_dims_dict(args)
@@ -156,7 +156,6 @@ class F1ModuleSimple(nn.Module):
             nn.Linear(d['o'], d['c']),
         )
 
-        self.E_c = E_c
         self.layer_norm = nn.LayerNorm([d['c']])
 
     def forward(self, X, X_weights_in, op):
@@ -186,7 +185,7 @@ class F1ModuleSimple(nn.Module):
 
 class F1ModuleMid(nn.Module):
 
-    def __init__(self, args, E_c):
+    def __init__(self, args):
         super().__init__()
         self.args = args
         d = parse_dims_dict(args)
@@ -202,7 +201,6 @@ class F1ModuleMid(nn.Module):
         self.W_ck = nn.Linear(d['c'], d['k'])
 
         self.CW_concepts = blocks.CondLinear(d['o'], d['c'], d['k'], bias=True)
-        self.E_c = E_c
 
     def forward(self, X, X_weights_in, concept):
         """
