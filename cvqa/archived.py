@@ -279,3 +279,10 @@
 #         viz_rep['tokens_img'] = toekns_img
 #         viz_rep['numerics_img'] = numerics_img
 #         viz_rep['mask_img'] = mask
+
+
+# xw_logits_init = torch.ones(B, N_objs).to(device)*-.01
+# xw_logits = self.m_f1(X, xw_logits_init, f1_op)
+# neg_logits = torch.log(1 - torch.exp(xw_logits))
+# full_logits = torch.stack([neg_logits, xw_logits], dim=-1)
+# return full_logits

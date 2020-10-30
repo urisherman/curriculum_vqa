@@ -61,6 +61,7 @@ class Seq2SeqLSTM(nn.Module):
 
         # decoder_out: [N_seq_t, B, d_h]
         decoder_out = decoder_out.transpose(0, 1)
+        # Add here decoder_out.att( encoder hiddens )  --> Section 3.3 in Dong & Lapata
         pred_target_vecs = self.W_o(decoder_out)
         logits = F.linear(pred_target_vecs, self.E_target.weight)
 

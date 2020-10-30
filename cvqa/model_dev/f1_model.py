@@ -91,8 +91,8 @@ class ParentModel(nn.Module):
         self.E_c = self.prompt_encoder.tokens_embedding
         self.W_w_op = None
 
-        self.m_f1 = F1ModuleMid(args, self.E_c)
-        # self.m_f1 = F1ModuleSimple(args, self.E_c)
+        # self.m_f1 = F1ModuleMid(args, self.E_c)
+        self.m_f1 = F1ModuleSimple(args, self.E_c)
 
         d['N_ops'] = 2
         self.E_ops = blocks.Embedding(d['N_ops'], d['w'])
@@ -114,7 +114,7 @@ class ParentModel(nn.Module):
 
         X = img
         X = self.layer_norm(X)
-        X = self.dropout_layer(X)
+        # X = self.dropout_layer(X)
         B, N_objs, _ = X.shape
 
         op_inputs = self.E_ops.weight  # [N_ops, w]
@@ -153,11 +153,11 @@ class F1ModuleSimple(nn.Module):
         self.W_viz = nn.Sequential(
             nn.Linear(d['o'], d['o']),
             nn.ReLU(),
-            nn.Linear(d['o'], d['o']),
+            nn.Linear(d['o'], d['c']),
         )
 
         self.E_c = E_c
-        self.layer_norm = nn.LayerNorm([d['o']])
+        self.layer_norm = nn.LayerNorm([d['c']])
 
     def forward(self, X, X_weights_in, op):
         """
