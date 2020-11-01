@@ -69,6 +69,7 @@ class MyModel(nn.Module):
         seq2tree = Seq2ConstTreeModel(program_spec.vocab, 'A ( F )')
 
         seeder_args = Seq2VecsLSTM.args(prompt_vocab, program_spec.vocab)
+        seeder_args['d_target'] = args['d_w']
         seeder_model = Seq2VecsLSTM(seeder_args)
 
         context_model = ContextModel(args)

@@ -115,15 +115,21 @@ class Models2Test(unittest.TestCase):
             'shape': ['triangle', 'circle', 'square']
         }
 
-        vqa_dist = VQAInstanceDistribution2(concept_dict=concept_dict, d_img=16, max_ref_concepts=1)
+        vqa_dist = VQAInstanceDistribution2(concept_dict=concept_dict, d_img=24, max_ref_concepts=1)
         ds_train, ds_dev = datasets.Curriculum.from_samples(
             vqa_dist.sample_dataset(images=100, prompts_per_image=3),
             vqa_dist.sample_dataset(images=20, prompts_per_image=3),
         )
 
         args = parent.default_args()
+        args['d_a'] = 4
+        args['d_w'] = args['d_c'] = 32
+        args['d_o'] = 24
+        args['d_k'] = 4
         model = parent.MyModel.build(args, ds_train.vocab, ds_train.ans_vocab)
 
         trainer = trainers.VQATrainer(progressbar='epochs')
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
         trainer.train(model, ds_train, ds_dev, optimizer, num_epochs=2, batch_size=B)
+
+        trainer.get_predictions(model, ds_train)

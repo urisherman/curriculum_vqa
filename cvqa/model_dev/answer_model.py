@@ -108,7 +108,7 @@ class ParentModel(nn.Module):
         x_w = target_attention_mask.float()
         x_w[x_w == -1] = 0
         _, logits = self.m_ans([(x_w, None)], ans_op, {'X': X, 'no_weights': None})
-        return logits.unsqueeze(1)
+        return logits
 
 
 class AnswerModule(nn.Module):
@@ -156,7 +156,7 @@ class AnswerModule(nn.Module):
 
         ans_vec = self.CW_ans(weighted_X, seed)  # [B, a]
         logits = F.linear(ans_vec.squeeze(1), self.E_a.weight)  # [B, N_a]
-        return x_weights_in, logits
+        return x_weights_in, logits.unsqueeze(1)
 
 
 class AttentionAnswerModule(nn.Module):
@@ -184,4 +184,4 @@ class AttentionAnswerModule(nn.Module):
         ans_vec = self.ATT_ans(question_op.unsqueeze(1), X_aug, X_w_aug)  # [B, 1, d_a]
         logits = F.linear(ans_vec.squeeze(1), self.E_a.weight)  # [B, N_a]
 
-        return logits
+        return logits.unsqueeze(1)
