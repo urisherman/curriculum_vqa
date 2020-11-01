@@ -10,7 +10,7 @@ class Seq2ConstTreeModel(object):
 
     def __init__(self, prog_vocab, fixed_prog_str):
         self.prog_vocab = prog_vocab
-        self.fixed_tree_tokens = torch.tensor(prog_vocab.encode(tokenize(fixed_prog_str)))
+        self.fixed_tree_tokens = torch.tensor(prog_vocab.encode(tokenize(fixed_prog_str))).to(device)
 
     def forward(self, prompt):
         B, N = prompt.shape
