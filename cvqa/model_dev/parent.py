@@ -62,8 +62,8 @@ class MyModel(nn.Module):
         dims_dict = parse_dims_dict(args)
 
         modules_dict = {
-            'A': answer_model.AnswerModule(dims_dict, answer_vocab),
-            'F': f1_model.F1ModuleSimple(args)
+            'A': answer_model.AnswerModule(dims_dict, answer_vocab).to(device),
+            'F': f1_model.F1ModuleSimple(args).to(device)
         }
         program_spec = ProgramSpec(modules_dict)
         seq2tree = Seq2ConstTreeModel(program_spec.vocab, 'A ( F )')
