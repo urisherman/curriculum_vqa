@@ -10,26 +10,25 @@ class Seq2ConstTreeModel(object):
 
     def __init__(self, prog_vocab, fixed_prog_str):
         self.prog_vocab = prog_vocab
-        self.fixed_tree_tokens = prog_vocab.encode(tokenize(fixed_prog_str))
+        self.fixed_tree_tokens = torch.tensor(prog_vocab.encode(tokenize(fixed_prog_str)))
 
-    def forward(self):
-        return self.fixed_tree_tokens
+    def forward(self, prompt):
+        B, N = prompt.shape
+        return self.fixed_tree_tokens.repeat(B, 1)
 
 
 class Seq2VecsLSTM(nn.Module):
 
     @staticmethod
-    def args(input_vocab, target_vocab):
+    def args(input_vocab, decoder_vocab):
         return {
             'V_input': len(input_vocab),
-            'V_target': len(target_vocab),
+            'V_decoder': len(decoder_vocab),
             'd_input': 16,
+            'd_decoder': 4,
             'd_target': 16,
             'd_h': 16,
-            'num_layers': 2,
-            'bos_index': target_vocab.bos_index,
-            'eos_index': target_vocab.eos_index,
-            'pad_index': target_vocab.pad_index,
+            'num_layers': 2
         }
 
     def __init__(self, args):
@@ -40,9 +39,9 @@ class Seq2VecsLSTM(nn.Module):
 
         self.E_input = nn.Embedding(args['V_input'], args['d_input'])
         self.encoder_lstm = nn.LSTM(args['d_input'], args['d_h'], num_layers=args['num_layers'])
-        self.decoder_lstm = nn.LSTM(args['d_target'], args['d_h'], num_layers=args['num_layers'])
+        self.decoder_lstm = nn.LSTM(args['d_decoder'], args['d_h'], num_layers=args['num_layers'])
         self.W_o = nn.Linear(args['d_h'], args['d_target'])
-        # self.E_target = nn.Embedding(args['V_target'], args['d_target'])
+        self.E_decoder = nn.Embedding(args['V_decoder'], args['d_decoder'])
 
     def init_hiddens(self, B):
         h_0 = torch.zeros(self.num_layers, B, self.d_h).to(device)
@@ -65,9 +64,9 @@ class Seq2VecsLSTM(nn.Module):
             encoder_out, (enc_h_n, enc_c_n) = self.encoder_lstm(X_embed, (h_0, c_0))
             decoder_hidden_state = (enc_h_n, enc_c_n)
 
-        target_embed = self.E_target(decoder_input)
-        target_embed = target_embed.transpose(0, 1)
-        decoder_out, decoder_hidden_state = self.decoder_lstm(target_embed, decoder_hidden_state)
+        decoder_input_embed = self.E_decoder(decoder_input)
+        decoder_input_embed = decoder_input_embed.transpose(0, 1)
+        decoder_out, decoder_hidden_state = self.decoder_lstm(decoder_input_embed, decoder_hidden_state)
 
         # decoder_out: [N_seq_t, B, d_h]
         decoder_out = decoder_out.transpose(0, 1)
@@ -94,7 +93,7 @@ class ExecTreeNode(object):
         for arg_node in self.arg_nodes:
             args.append(arg_node.exec(context=context))
 
-        output = self.module(args, context=context)
+        output = self.module(args, seed=self.seed, context=context)
         return output
 
     def __repr__(self):
@@ -124,29 +123,29 @@ def tokenize(program_str):
     return program_str.strip().split(' ')
 
 
-def parse(program, seeds, idx, vocab, modules_repo):
+def build_tree(program, seeds, idx, vocab, ids2modules):
     if vocab.is_module(program[idx]):
         args = []
         next_idx = idx + 1
-        if vocab.start_subtree == program[idx+1]:
-            args, next_idx = parse(program, idx + 1, vocab)
+        if vocab.start_subtree == program[next_idx]:
+            args, next_idx = build_tree(program, seeds, next_idx, vocab, ids2modules)
 
         module_id = program[idx]
-        node = ExecTreeNode(modules_repo[module_id], module_id, args)
+        node = ExecTreeNode(ids2modules[module_id], module_id, args)
         node.set_seed(seeds[idx])
         return node, next_idx
     elif vocab.start_subtree == program[idx]:
         args = []
-        idx += 1
+        next_idx = idx + 1
         while True:
-            if vocab.end_subtree == program[idx]:
+            if vocab.end_subtree == program[next_idx]:
                 break
-            elif vocab.sibling_symbol == program[idx]:
+            elif vocab.sibling_symbol == program[next_idx]:
                 continue
             else:
-                next_arg, idx = parse(program, idx, vocab)
+                next_arg, next_idx = build_tree(program, seeds, next_idx, vocab, ids2modules)
                 args.append(next_arg)
-        return args, idx
+        return args, next_idx
     else:
         raise ValueError('Illegal state')
 
@@ -156,5 +155,5 @@ if __name__ == '__main__':
     vocab = ProgramsVocab(['M'])
     program_tokens = vocab.encode(tokenize('M ( M )'))
     print(program_tokens)
-    root_node, _ = parse(program_tokens, 0, vocab)
+    root_node, _ = build_tree(program_tokens, 0, vocab)
     print(root_node)

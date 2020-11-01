@@ -124,8 +124,8 @@ class ParentModel(nn.Module):
         # w_ops = self.layer_norm(w_ops)
         ops = w_ops
         f1_op = ops[:, 0, :]
-        X_w = torch.ones(B, N_objs).to(device)
-        X_w_pred = self.m_f1(X, X_w, f1_op)
+        x_w = torch.ones(B, N_objs).to(device)
+        X_w_pred, _ = self.m_f1([(x_w, None)], f1_op, {'X': X, 'no_answer': None})
 
         class_preds = torch.zeros(B, N_objs, 2).to(device)
         class_preds[:, :, 1] = X_w_pred  # the probability the object is attended
@@ -158,18 +158,24 @@ class F1ModuleSimple(nn.Module):
 
         self.layer_norm = nn.LayerNorm([d['c']])
 
-    def forward(self, X, X_weights_in, op):
+    def forward(self, inputs, seed, context):
         """
-        X: [B, N_o, d_o]
-        X_weights_in: [B, N_o]
-        op: [B, d_c]
+        x_weights_in: list of [B, N_o]
+        seed: [B, d_c]
+        context.X: [B, N_o, d_o]
         """
+        if inputs:
+            x_weights_in, v_a = inputs[0]
+        else:
+            x_weights_in = context['init_w']
+
+        X = context['X']
         B, N_o, _ = X.shape
 
         X = self.W_viz(X)
         X = self.layer_norm(X)
 
-        P = self.W_concepts(op)
+        P = self.W_concepts(seed)
 
         # 3)
         X_c_logits = torch.matmul(
@@ -180,7 +186,7 @@ class F1ModuleSimple(nn.Module):
         EPS = 1e-4
         XP_res = torch.sigmoid(X_c_logits) * (1 - 2*EPS) + EPS
 
-        return X_weights_in * XP_res
+        return x_weights_in * XP_res, context['no_answer']
 
 
 class F1ModuleMid(nn.Module):

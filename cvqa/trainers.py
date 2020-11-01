@@ -150,7 +150,8 @@ class VQATrainer(object):
         sample = self.prep_sample(sample)
 
         logits = self.forward_train(model, sample)
-        logits = logits.flatten(end_dim=1)  # [B * No, V_target]
+        if len(logits.shape) > 2:
+            logits = logits.flatten(end_dim=1)  # [B * No, V_target]
         targets = sample[self.pred_target].flatten()  # [B * No]
 
         loss = self.loss_fn(logits, targets)

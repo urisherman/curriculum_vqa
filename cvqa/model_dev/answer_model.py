@@ -105,9 +105,9 @@ class ParentModel(nn.Module):
         ans_op = ops[:, 0, :]
         # ans_op = self.dropout_layer(ans_op)
 
-        X_w = target_attention_mask.float()
-        X_w[X_w == -1] = 0
-        logits = self.m_ans(X, X_w, ans_op)
+        x_w = target_attention_mask.float()
+        x_w[x_w == -1] = 0
+        _, logits = self.m_ans([(x_w, None)], ans_op, {'X': X, 'no_weights': None})
         return logits.unsqueeze(1)
 
 
@@ -133,13 +133,14 @@ class AnswerModule(nn.Module):
         self.E_a = blocks.Embedding(len(vocab), d['a'])
         self.x_norm = nn.LayerNorm(d['o'])
 
-    def forward(self, X, X_weights_in, question_op):
+    def forward(self, inputs, seed, context):
         """
-        X: [B, N_o, d_o]
-        X_weights_in: [B, N_o]
-        question_op: [B, d_c]
+        inputs.x_weights_in: [B, N_o]
+        seed: [B, d_c]
+        context.X: [B, N_o, d_o]
         """
-        # weighted_X = X.sum(axis=1)  # [B, o]
+        x_weights_in, v_a = inputs[0]
+        X = context['X']
         B, N_o, d_o = X.shape
 
         X = self.W_viz(X)
@@ -150,12 +151,12 @@ class AnswerModule(nn.Module):
             indicators -= torch.rand(B, N_o, 1).to(device) * 0.01
 
         X = torch.cat([indicators, X], dim=2)
-        weighted_X = (X_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
+        weighted_X = (x_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
         # weighted_X = (X_weights_in.unsqueeze(2) * torch.ones_like(X)).sum(axis=1)  # [B, o]
 
-        ans_vec = self.CW_ans(weighted_X, question_op)  # [B, a]
+        ans_vec = self.CW_ans(weighted_X, seed)  # [B, a]
         logits = F.linear(ans_vec.squeeze(1), self.E_a.weight)  # [B, N_a]
-        return logits
+        return x_weights_in, logits
 
 
 class AttentionAnswerModule(nn.Module):

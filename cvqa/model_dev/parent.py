@@ -31,45 +31,56 @@ def parse_dims_dict(args):
 class ContextModel(nn.Module):
     def __init__(self, args):
         super().__init__()
-        d = parse_dims_dict(args)
-        self.layer_norm = nn.LayerNorm([d['o']])
+        self.d = parse_dims_dict(args)
+        self.layer_norm = nn.LayerNorm([self.d['o']])
 
     def forward(self, prompt, img):
         img = self.layer_norm(img)
         B, N_objs, _ = img.shape
 
         init_w = torch.ones(B, N_objs).to(device)
+        no_answer = torch.zeros(B, self.d['a']).to(device)
         return {
-            'img': img,
-            'init_w': init_w
+            'X': img,
+            'init_w': init_w,
+            'no_answer': no_answer
         }
+
+
+class ProgramSpec(object):
+
+    def __init__(self, modules_dict):
+        self.modules_dict = modules_dict
+        self.vocab = ProgramsVocab(list(modules_dict.keys()))
+        self.ids2modules = {self.vocab.encode_symbol(k): m for k, m in modules_dict.items()}
 
 
 class MyModel(nn.Module):
 
     @staticmethod
-    def build(prompt_vocab, answer_vocab):
-        prog_vocab = ProgramsVocab(['A', 'F'])
-        seq2tree = Seq2ConstTreeModel(prog_vocab, 'A ( F )')
+    def build(args, prompt_vocab, answer_vocab):
+        dims_dict = parse_dims_dict(args)
 
-        seeder_args = Seq2VecsLSTM.args(prompt_vocab, prog_vocab)
+        modules_dict = {
+            'A': answer_model.AnswerModule(dims_dict, answer_vocab),
+            'F': f1_model.F1ModuleSimple(args)
+        }
+        program_spec = ProgramSpec(modules_dict)
+        seq2tree = Seq2ConstTreeModel(program_spec.vocab, 'A ( F )')
+
+        seeder_args = Seq2VecsLSTM.args(prompt_vocab, program_spec.vocab)
         seeder_model = Seq2VecsLSTM(seeder_args)
 
-        args = default_args()
-        dims_dict = parse_dims_dict(args)
         context_model = ContextModel(args)
-        modules_repo = {
-            prog_vocab.encode('A'): answer_model.AnswerModule(dims_dict, answer_vocab),
-            prog_vocab.encode('F'): f1_model.F1ModuleSimple(args)
-        }
-        return MyModel(seq2tree, seeder_model, context_model, modules_repo)
 
-    def __init__(self, seq2tree_model, seeder_model, context_model, modules_repo):
+        return MyModel(seq2tree, seeder_model, context_model, program_spec)
+
+    def __init__(self, seq2tree_model, seeder_model, context_model, program_spec):
         super().__init__()
         self.seq2tree_model = seq2tree_model
         self.seeder_model = seeder_model
         self.context_model = context_model
-        self.modules_repo = modules_repo
+        self.program_spec = program_spec
 
     def forward(self, prompt, img):
         """
@@ -77,17 +88,20 @@ class MyModel(nn.Module):
         :param img: B, N_objs, d_o
         :return:
         """
-        # 1) encode prompt to tree structure
-        program_tree_tokens = self.seq2tree_model(prompt)
+        # 1) Encode prompt to tree structure
+        program_tokens_batch = self.seq2tree_model.forward(prompt)
 
-        # 2) seed the tree
-        seeds = self.seeder_model(prompt, program_tree_tokens)
-        root_node, _ = programs.parse(program_tree_tokens, seeds, 0, self.seq2tree_model.prog_vocab, self.modules_repo)
+        # 2) Build and seed the tree.
+        #    The assumption is all programs in the batch have the same structure, so we do tree building from the first sample.
+        seeds = self.seeder_model(prompt, program_tokens_batch)
+        seeds = seeds.transpose(0, 1)  # [B, N_p, d_z] --> [N_p, B, d_z] so each tree node will get a seed of shape [B, d_z]
+        program_tokens = program_tokens_batch[0].detach().cpu().numpy()
+        root_node, _ = programs.build_tree(program_tokens, seeds, 0, self.program_spec.vocab, self.program_spec.ids2modules)
 
-        # 3) run context model for cross module computations
+        # 3) Run context model for cross module computations
         context = self.context_model(prompt, img)
 
-        # 4) execute the tree
-        output = root_node.exec(context=context)
+        # 4) Execute the tree
+        output = root_node.exec(context=context)[1]
 
         return output
