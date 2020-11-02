@@ -112,8 +112,9 @@ class VQATrainer(object):
                     warnings.warn(f'model parameter {tag} has no gradients')
                     grad_warnings[tag] = True
 
-            if self.summary_writer is not None:
-                    self.summary_writer.add_histogram(tag, parm.grad.data.cpu().numpy(), epoch)
+                if self.summary_writer is not None:
+                    if parm.requires_grad:
+                        self.summary_writer.add_histogram(tag, parm.grad.data.cpu().numpy(), epoch)
 
         if self.progressbar == 'none':
             for epoch in range(num_epochs):

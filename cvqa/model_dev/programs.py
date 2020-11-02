@@ -39,14 +39,14 @@ class TransformerSeederModel(nn.Module):
             prompt_vocab,
             args['d_w'],
             encoder_layers=2,
-            encoder_attention_heads=1,
+            encoder_attention_heads=2,
             encoder_dropout=0
         )
 
         self.op_decoder = blocks.TransformerDecoder.build(
             args['d_w'],
             decoder_ffn_dim=32,
-            decoder_layers=2,
+            decoder_layers=1,
             decoder_attention_heads=1,
             decoder_dropout=0)
 
