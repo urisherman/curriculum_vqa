@@ -10,10 +10,52 @@ else:
     device = torch.device("cpu")
 
 
+def parse_dims_dict(args):
+    return {
+        'a': args['d_a'],
+        'w': args['d_w'],
+        'c': args['d_c'],
+        'o': args['d_o'],
+        'k': args['d_k'],
+    }
+
+
 def nn_parameter(*shape):
     W = nn.Parameter(torch.Tensor(*shape))
     nn.init.kaiming_uniform_(W, a=math.sqrt(5))
     return W
+
+
+class ContextModel(nn.Module):
+    def __init__(self, args, ans_vocab):
+        super().__init__()
+        d = parse_dims_dict(args)
+        self.d = d
+        self.ans_vocab = ans_vocab
+
+        self.img_layer_norm = nn.LayerNorm([d['o']])
+        self.W_viz = nn.Sequential(
+            nn.Linear(d['o'], d['o']),
+            nn.ReLU(),
+            nn.Linear(d['o'], d['c']),
+            nn.ReLU(),
+        )
+        self.img_feat_layer_norm = nn.LayerNorm([d['c']])
+
+    def forward(self, prompt, img):
+        img = self.img_layer_norm(img)
+        img_feats = self.W_viz(img)
+        img_feats = self.img_feat_layer_norm(img_feats)
+
+        B, N_objs, _ = img.shape
+
+        init_w = torch.ones(B, N_objs).to(device)
+        no_answer = torch.zeros(B, 1, len(self.ans_vocab)).to(device)
+        return {
+            'X': img_feats,
+            'init_w': init_w,
+            'no_answer': no_answer
+        }
 
 
 class CondFFN(nn.Module):

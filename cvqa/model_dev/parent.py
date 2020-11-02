@@ -3,8 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from cvqa.model_dev import programs, answer_model, f1_model
+from cvqa.model_dev.blocks import ContextModel
 from cvqa.model_dev.misc import Vocabulary
-from cvqa.model_dev.programs import ProgramsVocab, Seq2ConstTreeModel, Seq2VecsLSTM
+from cvqa.model_dev.programs import ProgramsVocab, Seq2ConstTreeModel, Seq2VecsLSTM, TransformerSeederModel, ProgramSpec
 from cvqa.utils import device
 
 
@@ -28,31 +29,29 @@ def parse_dims_dict(args):
     }
 
 
-class ContextModel(nn.Module):
-    def __init__(self, args):
+
+class MultiModule(nn.Module):
+
+    def __init__(self, d_seed, sub_modules):
         super().__init__()
-        self.d = parse_dims_dict(args)
-        self.layer_norm = nn.LayerNorm([self.d['o']])
+        self.sub_modules = sub_modules
+        self.N_modules = len(sub_modules)
+        self.W = nn.Linear(d_seed, self.N_modules)
 
-    def forward(self, prompt, img):
-        img = self.layer_norm(img)
-        B, N_objs, _ = img.shape
+    def forward(self, inputs, seed, context):
+        weights = F.softmax(self.W(seed), dim=-1)
+        outputs = []
+        for i, m in enumerate(self.sub_modules):
+            m_outputs = m(inputs, seed, context)
+            for j, o in enumerate(m_outputs):
 
-        init_w = torch.ones(B, N_objs).to(device)
-        no_answer = torch.zeros(B, self.d['a']).to(device)
-        return {
-            'X': img,
-            'init_w': init_w,
-            'no_answer': no_answer
-        }
-
-
-class ProgramSpec(object):
-
-    def __init__(self, modules_dict):
-        self.modules_dict = modules_dict
-        self.vocab = ProgramsVocab(list(modules_dict.keys()))
-        self.ids2modules = {self.vocab.encode_symbol(k): m for k, m in modules_dict.items()}
+                # [B] * [B, *]
+                o_weighted = (weights[:, i]*o.T).T
+                if j >= len(outputs):
+                    outputs.append(o_weighted)
+                else:
+                    outputs[j] += o_weighted
+        return outputs
 
 
 class MyModel(nn.Module):
@@ -68,20 +67,21 @@ class MyModel(nn.Module):
         program_spec = ProgramSpec(modules_dict)
         seq2tree = Seq2ConstTreeModel(program_spec.vocab, 'A ( F )')
 
-        seeder_args = Seq2VecsLSTM.args(prompt_vocab, program_spec.vocab)
-        seeder_args['d_target'] = args['d_w']
-        seeder_model = Seq2VecsLSTM(seeder_args)
+        # seeder_args = Seq2VecsLSTM.args(prompt_vocab, program_spec.vocab)
+        # seeder_args['d_target'] = args['d_w']
+        # seeder_model = Seq2VecsLSTM(seeder_args)
 
+        seeder_model = TransformerSeederModel(prompt_vocab, program_spec.vocab, args)
         context_model = ContextModel(args)
 
-        return MyModel(seq2tree, seeder_model, context_model, program_spec)
+        return MyModel(seq2tree, seeder_model, program_spec, context_model)
 
-    def __init__(self, seq2tree_model, seeder_model, context_model, program_spec):
+    def __init__(self, seq2tree_model, seeder_model, program_spec, context_model=None):
         super().__init__()
         self.seq2tree_model = seq2tree_model
         self.seeder_model = seeder_model
-        self.context_model = context_model
         self.program_spec = program_spec
+        self.context_model = context_model
 
     def forward(self, prompt, img):
         """

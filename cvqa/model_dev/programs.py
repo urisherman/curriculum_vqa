@@ -2,8 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from cvqa.model_dev import blocks
 from cvqa.model_dev.misc import Vocabulary
 from cvqa.utils import device
+
+
+class ProgramSpec(object):
+
+    def __init__(self, modules_dict):
+        self.modules_dict = modules_dict
+        self.vocab = ProgramsVocab(list(modules_dict.keys()))
+        self.ids2modules = {self.vocab.encode_symbol(k): m for k, m in modules_dict.items()}
 
 
 class Seq2ConstTreeModel(object):
@@ -15,6 +24,52 @@ class Seq2ConstTreeModel(object):
     def forward(self, prompt):
         B, N = prompt.shape
         return self.fixed_tree_tokens.repeat(B, 1)
+
+
+class TransformerSeederModel(nn.Module):
+
+    def __init__(self, prompt_vocab, program_vocab, args):
+        super().__init__()
+        self.args = args
+
+        self.prompt_vocab = prompt_vocab
+        self.program_vocab = program_vocab
+
+        self.prompt_encoder = blocks.TransformerEncoder.build(
+            prompt_vocab,
+            args['d_w'],
+            encoder_layers=2,
+            encoder_attention_heads=1,
+            encoder_dropout=0
+        )
+
+        self.op_decoder = blocks.TransformerDecoder.build(
+            args['d_w'],
+            decoder_ffn_dim=32,
+            decoder_layers=2,
+            decoder_attention_heads=1,
+            decoder_dropout=0)
+
+        d = {}
+        d['N_c'] = len(prompt_vocab)
+        self.E_c = self.prompt_encoder.tokens_embedding
+        self.W_w_op = None
+
+        self.E_ops = blocks.Embedding(len(program_vocab), args['d_w'])
+        # self.dropout_layer = nn.Dropout(p=0.15)
+
+    def forward(self, prompt_tokens, program_tokens):
+        B, N_in = prompt_tokens.shape
+
+        prompt_encoded, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
+
+        op_inputs = self.E_ops(program_tokens)  # [N_ops, w]
+        # op_inputs = op_inputs.repeat(B, 1, 1)  # [B, N_ops, w]
+
+        w_ops = self.op_decoder(op_inputs, prompt_encoded, prompt_pad_mask)  # [B, N_ops, w]
+        # w_ops = self.layer_norm(w_ops)
+
+        return w_ops
 
 
 class Seq2VecsLSTM(nn.Module):
@@ -55,6 +110,9 @@ class Seq2VecsLSTM(nn.Module):
 
         returns logits for target tokens: [B, N_seq_t, V_target]
         """
+
+        #### CHECKOUT # https: // pytorch.org / docs / stable / generated / torch.nn.utils.rnn.pack_padded_sequence.html  # torch.nn.utils.rnn.pack_padded_sequence
+
         B, N_seq = X.shape
         if decoder_hidden_state is None:
             X_embed = self.E_input(X)

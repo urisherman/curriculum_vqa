@@ -5,6 +5,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from cvqa.model_dev import blocks
+from cvqa.model_dev.blocks import ContextModel
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -52,6 +53,7 @@ class ParentModel(nn.Module):
         self.prompt_vocab = prompt_vocab
         self.answer_vocab = answer_vocab
 
+        self.context_model = ContextModel(args, answer_vocab)
         self.prompt_encoder = blocks.TransformerEncoder.build(
             prompt_vocab,
             d['w'],
@@ -76,9 +78,6 @@ class ParentModel(nn.Module):
         d['N_ops'] = 2
         self.E_ops = blocks.Embedding(d['N_ops'], d['w'])
 
-        self.dropout_layer = nn.Dropout(p=0.15)
-        self.layer_norm = nn.LayerNorm([d['o']])
-
     def forward_train(self, sample):
         return self.forward(sample['prompt'], sample['img'], sample['target_attention_mask'])
 
@@ -90,15 +89,13 @@ class ParentModel(nn.Module):
     def forward(self, prompt_tokens, img, target_attention_mask=None):
 
         prompt_encoded, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
+        ctx_dict = self.context_model(prompt_tokens, img)
 
-        X = img
-        X = self.layer_norm(X)
-        # X = self.dropout_layer(X)
+        X = ctx_dict['X']
+
         B, N_objs, _ = X.shape
-
         op_inputs = self.E_ops.weight  # [N_ops, w]
         op_inputs = op_inputs.repeat(B, 1, 1)  # [B, N_ops, w]
-
         w_ops = self.op_decoder(op_inputs, prompt_encoded, prompt_pad_mask)  # [B, N_ops, w]
         # w_ops = self.layer_norm(w_ops)
         ops = w_ops
@@ -107,7 +104,7 @@ class ParentModel(nn.Module):
 
         x_w = target_attention_mask.float()
         x_w[x_w == -1] = 0
-        _, logits = self.m_ans([(x_w, None)], ans_op, {'X': X, 'no_weights': None})
+        _, logits = self.m_ans([(x_w, None)], ans_op, ctx_dict)
         return logits
 
 
@@ -120,18 +117,10 @@ class AnswerModule(nn.Module):
         self.vocab = vocab
         self.dims_dict = dims_dict
 
-        self.W_viz = nn.Sequential(
-            nn.Linear(d['o'], d['o']),
-            nn.ReLU(),
-            nn.Linear(d['o'], d['o']),
-            nn.ReLU(),
-        )
-
-        self.CW_ans = blocks.CondLinear(d['o']+1, d['a'], d['c'], bias=True)
+        self.CW_ans = blocks.CondLinear(d['c']+1, d['a'], d['c'], bias=True)
         # self.CW_ans = blocks.CondFFN(d['o'] + 1, 64, d['a'], d['c'], has_bias=True, n_hidden_layers=1)
 
         self.E_a = blocks.Embedding(len(vocab), d['a'])
-        self.x_norm = nn.LayerNorm(d['o'])
 
     def forward(self, inputs, seed, context):
         """
@@ -139,12 +128,13 @@ class AnswerModule(nn.Module):
         seed: [B, d_c]
         context.X: [B, N_o, d_o]
         """
-        x_weights_in, v_a = inputs[0]
-        X = context['X']
-        B, N_o, d_o = X.shape
+        if inputs:
+            x_weights_in, v_a = inputs[0]
+        else:
+            x_weights_in = context['init_w']
 
-        X = self.W_viz(X)
-        X = self.x_norm(X)
+        X = context['X']
+        B, N_o, d_c = X.shape
 
         indicators = torch.ones(B, N_o, 1).to(device)
         if self.training:

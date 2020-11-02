@@ -5,6 +5,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from cvqa.model_dev import blocks
+from cvqa.model_dev.blocks import ContextModel
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -72,6 +73,8 @@ class ParentModel(nn.Module):
         self.prompt_vocab = prompt_vocab
         self.answer_vocab = answer_vocab
 
+        self.context_model = ContextModel(args, answer_vocab)
+
         self.prompt_encoder = blocks.TransformerEncoder.build(
             prompt_vocab,
             d['w'],
@@ -97,9 +100,6 @@ class ParentModel(nn.Module):
         d['N_ops'] = 2
         self.E_ops = blocks.Embedding(d['N_ops'], d['w'])
 
-        self.dropout_layer = nn.Dropout(p=0.15)
-        self.layer_norm = nn.LayerNorm([d['o']])
-
     def forward_train(self, sample):
         return self.forward(sample['prompt'], sample['img'])
 
@@ -112,26 +112,34 @@ class ParentModel(nn.Module):
 
         prompt_encoded, prompt_pad_mask = self.prompt_encoder(prompt_tokens)
 
-        X = img
-        X = self.layer_norm(X)
-        # X = self.dropout_layer(X)
+        ctx_dict = self.context_model(prompt_tokens, img)
+
+        X = ctx_dict['X']
         B, N_objs, _ = X.shape
 
         op_inputs = self.E_ops.weight  # [N_ops, w]
         op_inputs = op_inputs.repeat(B, 1, 1)  # [B, N_ops, w]
-
         w_ops = self.op_decoder(op_inputs, prompt_encoded, prompt_pad_mask)  # [B, N_ops, w]
         # w_ops = self.layer_norm(w_ops)
         ops = w_ops
         f1_op = ops[:, 0, :]
         x_w = torch.ones(B, N_objs).to(device)
-        X_w_pred, _ = self.m_f1([(x_w, None)], f1_op, {'X': X, 'no_answer': None})
 
+        # probabilities
+        X_w_pred, _ = self.m_f1([(x_w, None)], f1_op, ctx_dict)
         class_preds = torch.zeros(B, N_objs, 2).to(device)
         class_preds[:, :, 1] = X_w_pred  # the probability the object is attended
         class_preds[:, :, 0] = 1 - X_w_pred  # the probability object is not attended
-
         ret = torch.log(class_preds)
+
+        # logits
+        # x_w_pred, _ = self.m_f1([(x_w, None)], f1_op, ctx_dict)
+        # x_w_pred_prob = torch.exp(x_w_pred)
+        # class_preds = torch.zeros(B, N_objs, 2).to(device)
+        # class_preds[:, :, 1] = x_w_pred_prob  # the probability the object is attended
+        # class_preds[:, :, 0] = 1 - x_w_pred_prob  # the probability object is not attended
+        # ret = torch.log(class_preds)
+
         return ret
 
 
@@ -150,14 +158,6 @@ class F1ModuleSimple(nn.Module):
             # nn.ReLU(),
         )
 
-        self.W_viz = nn.Sequential(
-            nn.Linear(d['o'], d['o']),
-            nn.ReLU(),
-            nn.Linear(d['o'], d['c']),
-        )
-
-        self.layer_norm = nn.LayerNorm([d['c']])
-
     def forward(self, inputs, seed, context):
         """
         x_weights_in: list of [B, N_o]
@@ -172,9 +172,6 @@ class F1ModuleSimple(nn.Module):
         X = context['X']
         B, N_o, _ = X.shape
 
-        X = self.W_viz(X)
-        X = self.layer_norm(X)
-
         P = self.W_concepts(seed)
 
         # 3)
@@ -183,10 +180,15 @@ class F1ModuleSimple(nn.Module):
             P.unsqueeze(2)   # [B, d_c, 1]
         ).squeeze(2)
         #  X_c_logits:  [B, N_o]
+
         EPS = 1e-4
         XP_res = torch.sigmoid(X_c_logits) * (1 - 2*EPS) + EPS
-
         return x_weights_in * XP_res, context['no_answer']
+
+        # P_norms = torch.sqrt((P**2).sum(axis=1)).unsqueeze(1)
+        # X_c_logits = torch.min(X_c_logits, P_norms)
+        # X_c_logits = X_c_logits - P_norms
+        # return X_c_logits, context['no_answer']
 
 
 class F1ModuleMid(nn.Module):

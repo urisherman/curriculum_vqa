@@ -13,6 +13,8 @@ from cvqa.curriculum import VQAInstanceDistribution2
 from cvqa.datasets import Curriculum
 from cvqa.model_dev import answer_model, f1_model, parent
 from cvqa.model_dev.lstms import Seq2SeqLSTM
+from cvqa.model_dev.parent import parse_dims_dict
+from cvqa.model_dev.programs import ProgramSpec, Seq2ConstTreeModel, Seq2VecsLSTM
 from cvqa.vis_models import StructuredImageModel
 
 project_root = pathlib.Path(__file__).parent.parent.absolute()
@@ -121,15 +123,45 @@ class Models2Test(unittest.TestCase):
             vqa_dist.sample_dataset(images=20, prompts_per_image=3),
         )
 
+        prompt_vocab = ds_train.vocab
+        ans_vocab = ds_train.ans_vocab
+
         args = parent.default_args()
         args['d_a'] = 4
         args['d_w'] = args['d_c'] = 32
         args['d_o'] = 24
         args['d_k'] = 4
-        model = parent.MyModel.build(args, ds_train.vocab, ds_train.ans_vocab)
+
+        #### Build Model
+        model_a = answer_model.AnswerModule(parse_dims_dict(args), ans_vocab)
+        model_f1 = f1_model.F1ModuleSimple(args)
+
+        #     program_spec = ProgramSpec({
+        #         'A': model_a,
+        #         'F': model_f1
+        #     })
+        #     seq2tree = Seq2ConstTreeModel(program_spec.vocab, 'A ( F )')
+
+        program_spec = ProgramSpec({
+            'M': parent.MultiModule(args['d_w'], [model_a, model_f1])
+        })
+
+        seq2tree = Seq2ConstTreeModel(program_spec.vocab, 'M ( M )')
+
+        #     seeder_model = TransformerSeederModel(prompt_vocab, program_spec.vocab, args)
+
+        seeder_args = Seq2VecsLSTM.args(prompt_vocab, program_spec.vocab)
+        seeder_args['d_target'] = args['d_w']
+        seeder_model = Seq2VecsLSTM(seeder_args)
+
+        context_model = parent.ContextModel(args, ans_vocab)
+
+        model = parent.MyModel(seq2tree, seeder_model, program_spec, context_model)
+        # model = parent.MyModel.build(args, ds_train.vocab, ds_train.ans_vocab)
+        ####
 
         trainer = trainers.VQATrainer(progressbar='epochs')
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-        trainer.train(model, ds_train, ds_dev, optimizer, num_epochs=2, batch_size=B)
+        trainer.train(model, ds_train, ds_dev, optimizer, num_epochs=2, batch_size=3)
 
         trainer.get_predictions(model, ds_train)
