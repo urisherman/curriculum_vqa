@@ -165,3 +165,45 @@ class Models2Test(unittest.TestCase):
         trainer.train(model, ds_train, ds_dev, optimizer, num_epochs=2, batch_size=3)
 
         trainer.get_predictions(model, ds_train)
+
+    def test_parent_clevr(self):
+        from cvqa import clevr_utils
+
+        ds_train, ds_dev = datasets.CLEVR.load_train_dev(clevr_root, programs_mapping=clevr_utils.programs_mapping, d_img=24, limit=50)
+        clevr_utils.filter_samples(ds_train, ['f1'])
+        clevr_utils.filter_samples(ds_dev, ['f1'])
+
+        prompt_vocab = ds_train.vocab
+        ans_vocab = ds_train.ans_vocab
+
+        args = parent.default_args()
+        args['d_a'] = 4
+        args['d_w'] = args['d_c'] = 32
+        args['d_o'] = 24
+        args['d_k'] = 4
+
+        #### Build Model
+        model_a = answer_model.AnswerModule(parse_dims_dict(args), ans_vocab)
+        model_f1 = f1_model.F1ModuleSimple(args)
+
+        program_spec = ProgramSpec({
+            'A': model_a,
+            'F': model_f1
+        })
+        seq2tree = Seq2ConstTreeModel(program_spec.vocab, 'A ( F )')
+
+        seeder_args = Seq2VecsLSTM.args(prompt_vocab, program_spec.vocab)
+        seeder_args['d_target'] = args['d_w']
+        seeder_model = Seq2VecsLSTM(seeder_args)
+
+        context_model = parent.ContextModel(args, ans_vocab)
+
+        model = parent.MyModel(seq2tree, seeder_model, program_spec, context_model)
+        # model = parent.MyModel.build(args, ds_train.vocab, ds_train.ans_vocab)
+        ####
+
+        trainer = trainers.VQATrainer(progressbar='epochs')
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        trainer.train(model, ds_train, ds_dev, optimizer, num_epochs=2, batch_size=3)
+
+        trainer.get_predictions(model, ds_train)

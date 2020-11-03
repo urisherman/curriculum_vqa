@@ -85,21 +85,32 @@ class MyModel(nn.Module):
             if isinstance(m, nn.Module):
                 self.add_module(f'node_{k}', m)
 
-    def forward(self, prompt, img):
+    def forward_train(self, sample):
+        return self.forward(sample['prompt'], sample['img'], program_tokens_batch=sample.get('target_program_out', None))
+
+    def forward_test(self, sample):
+        logits = self.forward(sample['prompt'], sample['img'], program_tokens_batch=sample.get('target_program_out', None))
+        _, y_pred = torch.max(logits, axis=-1)
+        return logits, y_pred
+
+    def forward(self, prompt, img, program_tokens_batch=None):
         """
         :param prompt: B, N_prompt, d_w
         :param img: B, N_objs, d_o
         :return:
         """
         # 1) Encode prompt to tree structure
-        program_tokens_batch = self.seq2tree_model.forward(prompt)
+        if program_tokens_batch is None:
+            program_tokens_batch = self.seq2tree_model.forward(prompt)
 
         # 2) Build and seed the tree.
         #    The assumption is all programs in the batch have the same structure, so we do tree building from the first sample.
         seeds = self.seeder_model(prompt, program_tokens_batch)
         seeds = seeds.transpose(0, 1)  # [B, N_p, d_z] --> [N_p, B, d_z] so each tree node will get a seed of shape [B, d_z]
         program_tokens = program_tokens_batch[0].detach().cpu().numpy()
+        # print(program_tokens)
         root_node, _ = programs.build_tree(program_tokens, seeds, 0, self.program_spec.vocab, self.program_spec.ids2modules)
+        # print(root_node)
 
         # 3) Run context model for cross module computations
         context = self.context_model(prompt, img)

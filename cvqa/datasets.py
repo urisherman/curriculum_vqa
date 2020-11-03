@@ -312,9 +312,9 @@ class Curriculum(BaseDataset):
 class CLEVR(BaseDataset):
 
     @staticmethod
-    def load_train_dev(root, samples_filter=None, struct_viz=True, d_img=24):
-        ds_train = CLEVR(root, 'train', samples_filter=samples_filter)
-        ds_dev = CLEVR(root, 'val', vocabs_from=ds_train, samples_filter=samples_filter)
+    def load_train_dev(root, samples_filter=None, programs_mapping=None, struct_viz=True, limit=None, d_img=24):
+        ds_train = CLEVR(root, 'train', samples_filter=samples_filter, programs_mapping=programs_mapping, limit=limit)
+        ds_dev = CLEVR(root, 'val', vocabs_from=ds_train, samples_filter=samples_filter, programs_mapping=programs_mapping, limit=limit)
 
         if struct_viz:
             ds_train.use_viz_rep = True
@@ -381,7 +381,7 @@ class CLEVR(BaseDataset):
         output = answer_op['function'] + '(' + ', '.join(answer_op_inputs) + ')'
         return output
 
-    def __init__(self, root, split='train', samples_filter=None, vocabs_from=None, parse_programs=True, limit=None):
+    def __init__(self, root, split='train', samples_filter=None, vocabs_from=None, parse_programs=True, limit=None, programs_mapping=None):
         questions_path = f'{root}/questions/CLEVR_{split}_questions.json'
         scenes_path = f'{root}/scenes/CLEVR_{split}_scenes.json'
 
@@ -409,12 +409,17 @@ class CLEVR(BaseDataset):
             sample['viz_rep'] = self.scene_to_canonical_rep(scene)
             sample['scene'] = scene
             if parse_programs:
-                prog_str = CLEVR.build_prog_str(sample['program'])
-                sample['program_str'] = prog_str
-                program_tokens = []
-                for token in CLEVR.tokenize_program(prog_str):
-                    program_tokens.append(programs_vocab.add_symbol(token))
-                sample['program_tokens'] = torch.tensor(program_tokens)
+                if programs_mapping is None:
+                    prog_str = CLEVR.build_prog_str(sample['program'])
+                    sample['program_str'] = prog_str
+                    program_tokens = []
+                    for token in CLEVR.tokenize_program(prog_str):
+                        program_tokens.append(programs_vocab.add_symbol(token))
+                    sample['program_tokens'] = torch.tensor(program_tokens)
+                else:
+                    program_str, program_tokens = programs_mapping.get(sample['question_family_index'], ('NONE', []))
+                    sample['program_str'] = program_str
+                    sample['program_tokens'] = torch.tensor(program_tokens)
 
             if samples_filter is None or samples_filter(sample):
                 final_samples.append(sample)

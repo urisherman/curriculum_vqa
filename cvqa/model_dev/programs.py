@@ -166,11 +166,12 @@ class ProgramsVocab(Vocabulary):
 
     def __init__(self, module_symbols):
         super().__init__()
-        self.module_symbols = module_symbols
-        self.module_idxs = self.encode(module_symbols)
         self.start_subtree = self.encode_symbol('(')
         self.end_subtree = self.encode_symbol(')')
         self.sibling_symbol = self.encode_symbol(',')
+
+        self.module_symbols = module_symbols
+        self.module_idxs = self.encode(module_symbols)
         self.build()
 
     def is_module(self, idx):
