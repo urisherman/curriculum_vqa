@@ -117,8 +117,8 @@ class AnswerModule(nn.Module):
         self.vocab = vocab
         self.dims_dict = dims_dict
 
-        self.CW_ans = blocks.CondLinear(d['c']+1, d['a'], d['c'], bias=True)
-        # self.CW_ans = blocks.CondFFN(d['o'] + 1, 64, d['a'], d['c'], has_bias=True, n_hidden_layers=1)
+        self.CW_concept = blocks.CondLinear(d['c']+1, d['c'], d['c'], bias=True)
+        self.W_ans = nn.Linear(d['c'], d['a'])
 
         self.E_a = blocks.Embedding(len(vocab), d['a'])
 
@@ -144,7 +144,8 @@ class AnswerModule(nn.Module):
         weighted_X = (x_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
         # weighted_X = (X_weights_in.unsqueeze(2) * torch.ones_like(X)).sum(axis=1)  # [B, o]
 
-        ans_vec = self.CW_ans(weighted_X, seed)  # [B, a]
+        concept_vec = self.CW_concept(weighted_X, seed)  # [B, c]
+        ans_vec = self.W_ans(concept_vec)  # [B, a]
         logits = F.linear(ans_vec.squeeze(1), self.E_a.weight)  # [B, N_a]
         return x_weights_in, logits.unsqueeze(1)
 

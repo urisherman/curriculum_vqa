@@ -143,7 +143,7 @@ class ParentModel(nn.Module):
         return ret
 
 
-class F2AttrModule():
+class F2AttrModule(nn.Module):
 
     def __init__(self, a_module, f1_module):
         super().__init__()
@@ -152,71 +152,34 @@ class F2AttrModule():
 
     def forward(self, inputs, seed, context):
         """
+        "Is there anything else that is the same size as the red object?"
+
+        --> A(seed='exists', F2Attr(seed='size', F1(seed='red object')))
+
         inputs.x_weights_in: [B, N_o]
-        seed: [B, d_c]
+        seed: [B, d_c] -- The seed here tells us which attribute to compare
         context.X: [B, N_o, d_o]
         """
-        if inputs:
-            x_weights_in, v_a = inputs[0]
-        else:
+        if inputs and len(inputs) >= 2:
+            x_weights_in, _ = inputs[0]
+            x_weights_ref, _ = inputs[1]
+        elif inputs and len(inputs) == 1:
             x_weights_in = context['init_w']
+            x_weights_ref, _ = inputs[0]
+        else:
+            return context['zero_w'], context['no_answer']
 
         X = context['X']
         B, N_o, d_c = X.shape
 
         indicators = torch.ones(B, N_o, 1).to(device)
-        if self.training:
-            indicators -= torch.rand(B, N_o, 1).to(device) * 0.01
-
         X = torch.cat([indicators, X], dim=2)
-        weighted_X = (x_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
-        # weighted_X = (X_weights_in.unsqueeze(2) * torch.ones_like(X)).sum(axis=1)  # [B, o]
+        weighted_x = (x_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
 
-        ans_vec = self.CW_ans(weighted_X, seed)  # [B, a]
+        # get 'seed' property of weighted_x - eg its color.
+        concept_vec = self.a_module.CW_concept(weighted_x, seed)  # [B, c]
 
+        # filter x_weights_in by our computed concept vec
+        x_weights_out, _ = self.f1_module([(x_weights_in, None)], seed=concept_vec, context=context)
 
-class F1ModuleMid(nn.Module):
-
-    def __init__(self, args):
-        super().__init__()
-        self.args = args
-        d = parse_dims_dict(args)
-        self.dims_dict = d
-
-        self.W_viz = nn.Sequential(
-            nn.Linear(d['o'], d['o']),
-            nn.ReLU(),
-            nn.Linear(d['o'], d['o']),
-        )
-        self.x_norm = nn.LayerNorm(d['o'])
-
-        self.W_ck = nn.Linear(d['c'], d['k'])
-
-        self.CW_concepts = blocks.CondLinear(d['o'], d['c'], d['k'], bias=True)
-
-    def forward(self, X, X_weights_in, concept):
-        """
-        X: [B, N_o, d_o]
-        X_weights_in: [B, N_o]
-        op: [B, d_c]
-
-        returns [B, N_o, d_o]
-        """
-        B, N_o, _ = X.shape
-
-        X = self.W_viz(X)
-        X = self.x_norm(X)
-
-        concept_cat = self.W_ck(concept)  # [B, d_k]
-        # Transform X conditioned on the concept category (eg color)
-        X_c = self.CW_concepts(X, concept_cat)  # [B, N_o, d_c]
-
-        X_c_logits = torch.matmul(
-            X_c,                    # [B, N_o, d_c]
-            concept.unsqueeze(2)    # [B, d_c, 1]
-        ).squeeze(2)  # [B, N_o]
-
-        EPS = 1e-4
-        XP_res = torch.sigmoid(X_c_logits) * (1 - 2*EPS) + EPS
-
-        return X_weights_in * XP_res
+        return x_weights_out, context['no_answer']

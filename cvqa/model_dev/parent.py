@@ -82,7 +82,8 @@ class MyModel(nn.Module):
         self.program_spec = program_spec
         self.context_model = context_model
         for k, m in program_spec.modules_dict.items():
-            self.add_module(f'node_{k}', m)
+            if isinstance(m, nn.Module):
+                self.add_module(f'node_{k}', m)
 
     def forward(self, prompt, img):
         """

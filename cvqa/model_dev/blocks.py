@@ -50,10 +50,13 @@ class ContextModel(nn.Module):
         B, N_objs, _ = img.shape
 
         init_w = torch.ones(B, N_objs).to(device)
+        zero_w = torch.zeros(B, N_objs).to(device)
+
         no_answer = torch.zeros(B, 1, len(self.ans_vocab)).to(device)
         return {
             'X': img_feats,
             'init_w': init_w,
+            'zero_w': zero_w,
             'no_answer': no_answer
         }
 
