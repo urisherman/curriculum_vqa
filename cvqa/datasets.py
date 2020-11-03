@@ -312,19 +312,19 @@ class Curriculum(BaseDataset):
 class CLEVR(BaseDataset):
 
     @staticmethod
-    def load_train_dev(root, struct_viz=True):
-        ds_train = CLEVR(root, 'train')
-        ds_dev = CLEVR(root, 'val', vocabs_from=ds_train)
+    def load_train_dev(root, samples_filter=None, struct_viz=True, d_img=24):
+        ds_train = CLEVR(root, 'train', samples_filter=samples_filter)
+        ds_dev = CLEVR(root, 'val', vocabs_from=ds_train, samples_filter=samples_filter)
 
         if struct_viz:
             ds_train.use_viz_rep = True
             ds_dev.use_viz_rep = True
-            CLEVR.add_encoded_viz(ds_train.samples + ds_dev.samples)
+            CLEVR.add_encoded_viz(ds_train.samples + ds_dev.samples, d_img=d_img)
 
         return ds_train, ds_dev
 
     @staticmethod
-    def add_encoded_viz(samples):
+    def add_encoded_viz(samples, d_img=24):
         import itertools
         from tqdm import tqdm
         import torch.nn.functional as F
@@ -344,7 +344,7 @@ class CLEVR(BaseDataset):
 
         N_max_objs = max(map(lambda s: len(s['scene']['objects']), samples))
 
-        vizenc = VizEncoder(concepts, numeric_fields=['3d_coords'])
+        vizenc = VizEncoder(concepts, numeric_fields=['3d_coords'], d_img=d_img-9)
 
         for s in tqdm(samples):
             N_objs = len(s['scene']['objects'])
@@ -381,7 +381,7 @@ class CLEVR(BaseDataset):
         output = answer_op['function'] + '(' + ', '.join(answer_op_inputs) + ')'
         return output
 
-    def __init__(self, root, split='train', vocabs_from=None, parse_programs=True, limit=None):
+    def __init__(self, root, split='train', samples_filter=None, vocabs_from=None, parse_programs=True, limit=None):
         questions_path = f'{root}/questions/CLEVR_{split}_questions.json'
         scenes_path = f'{root}/scenes/CLEVR_{split}_scenes.json'
 
@@ -399,6 +399,7 @@ class CLEVR(BaseDataset):
         else:
             programs_vocab = Dictionary()
 
+        final_samples = []
         for sample in samples:
             sample['prompt'] = sample['question']
             sample['target'] = sample['answer']
@@ -415,6 +416,9 @@ class CLEVR(BaseDataset):
                     program_tokens.append(programs_vocab.add_symbol(token))
                 sample['program_tokens'] = torch.tensor(program_tokens)
 
+            if samples_filter is None or samples_filter(sample):
+                final_samples.append(sample)
+
         self.programs_vocab = programs_vocab
         img_transform = tv.transforms.Compose([
             tv.transforms.Pad((0, 150), fill=300, padding_mode='constant'),
@@ -423,7 +427,7 @@ class CLEVR(BaseDataset):
             tv.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
 
-        super().__init__(os.path.join(root, split), samples, img_transform,
+        super().__init__(os.path.join(root, split), final_samples, img_transform,
                          vocabs_from=vocabs_from, prompt_mode='natural', target_mode='natural', limit=limit)
 
     def scene_to_canonical_rep(self, scene):

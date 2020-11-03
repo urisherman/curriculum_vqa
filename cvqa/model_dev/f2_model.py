@@ -95,7 +95,7 @@ class ParentModel(nn.Module):
         self.W_w_op = None
 
         # self.m_f1 = F1ModuleMid(args, self.E_c)
-        self.m_f1 = F1ModuleSimple(args)
+        # self.m_f1 = F1ModuleSimple(args)
 
         d['N_ops'] = 2
         self.E_ops = blocks.Embedding(d['N_ops'], d['w'])
@@ -143,24 +143,16 @@ class ParentModel(nn.Module):
         return ret
 
 
-class F1ModuleSimple(nn.Module):
+class F2AttrModule():
 
-    def __init__(self, args):
+    def __init__(self, a_module, f1_module):
         super().__init__()
-        self.args = args
-        d = parse_dims_dict(args)
-        self.dims_dict = d
-
-        self.W_concepts = nn.Sequential(
-            nn.Linear(d['w'], d['c']),
-            # nn.ReLU(),
-            # nn.Linear(d['c'], d['c']),
-            # nn.ReLU(),
-        )
+        self.a_module = a_module
+        self.f1_module = f1_module
 
     def forward(self, inputs, seed, context):
         """
-        x_weights_in: list of [B, N_o]
+        inputs.x_weights_in: [B, N_o]
         seed: [B, d_c]
         context.X: [B, N_o, d_o]
         """
@@ -170,25 +162,17 @@ class F1ModuleSimple(nn.Module):
             x_weights_in = context['init_w']
 
         X = context['X']
-        B, N_o, _ = X.shape
+        B, N_o, d_c = X.shape
 
-        P = self.W_concepts(seed)
+        indicators = torch.ones(B, N_o, 1).to(device)
+        if self.training:
+            indicators -= torch.rand(B, N_o, 1).to(device) * 0.01
 
-        # 3)
-        X_c_logits = torch.matmul(
-            X,             # [B, N_o, d_c]
-            P.unsqueeze(2)   # [B, d_c, 1]
-        ).squeeze(2)
-        #  X_c_logits:  [B, N_o]
+        X = torch.cat([indicators, X], dim=2)
+        weighted_X = (x_weights_in.unsqueeze(2) * X).sum(axis=1)  # [B, o+1]
+        # weighted_X = (X_weights_in.unsqueeze(2) * torch.ones_like(X)).sum(axis=1)  # [B, o]
 
-        EPS = 1e-4
-        XP_res = torch.sigmoid(X_c_logits) * (1 - 2*EPS) + EPS
-        return x_weights_in * XP_res, context['no_answer']
-
-        # P_norms = torch.sqrt((P**2).sum(axis=1)).unsqueeze(1)
-        # X_c_logits = torch.min(X_c_logits, P_norms)
-        # X_c_logits = X_c_logits - P_norms
-        # return X_c_logits, context['no_answer']
+        ans_vec = self.CW_ans(weighted_X, seed)  # [B, a]
 
 
 class F1ModuleMid(nn.Module):
