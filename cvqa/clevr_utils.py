@@ -1,5 +1,15 @@
 from cvqa.model_dev.programs import ProgramSpec
 
+# 36-39, 44-47 --> Exists ( F2_attr(all, F1(gray); z=size) )
+# 40-43, 48,50,51 --> Count ( F2_attr(all, F1(gray); z=size) )
+# 72 --> Count(F2(all, F1(red), z=to_the_right))
+# 84 --> Count(F1)
+# 85 --> Exists(F1)
+# 86 --> A(F1, seed=shape)
+# 87 --> A(F1, seed=material)
+# 88 --> A(F1, seed=ball)
+# 89 --> A(F1, seed=size)
+
 q_types = {
     'f1': [85, 86, 87, 88, 89],
     'f1_count': [84],

@@ -26,6 +26,8 @@ def default_args():
         'd_c': 16,
         'd_o': 16,
         'd_k': 8,
+        'encoder_layers': 2,
+        'encoder_ffn_dim': 32,
     }
 
 
@@ -57,7 +59,8 @@ class ParentModel(nn.Module):
         self.prompt_encoder = blocks.TransformerEncoder.build(
             prompt_vocab,
             d['w'],
-            encoder_layers=2,
+            encoder_ffn_dim=args['encoder_ffn_dim'],
+            encoder_layers=args['encoder_layers'],
             encoder_attention_heads=2,
             encoder_dropout=0
         )
